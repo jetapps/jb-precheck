@@ -25,10 +25,12 @@
 
 
 LINEBREAK="********************************"
-MYIP="$(curl -sS -4 ifconfig.me)"
 
 echo "${LINEBREAK}"
-echo "OUTGOING SERVER IP: $MYIP"
+echo "Trying CURL to get outgoing public IP address..."
+MYIP="$(curl -sS -4 ifconfig.me)"
+[[ $? != 0 ]] && echo "Failed CURL to determine outgoing IP address. May be blocked by Firewall or CSF."
+[[ -n ${MYIP} ]] && echo "OUTGOING SERVER IP: $MYIP"
 echo "${LINEBREAK}"
 ################################################################
 # Check Connectivity to JetLicense 
