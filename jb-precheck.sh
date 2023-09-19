@@ -1,5 +1,5 @@
 #!/bin/bash
-#set -o pipefail
+set -o pipefail
 # JetBackup Pre-Check Troubleshooting Script 
 
 # Copyright 2023, JetApps, LLC.
@@ -57,7 +57,7 @@ echo "OS: $NAME $VERSION_ID"
 
 validateLicense() {
 
-[[ -n ${MYIP} ]] && echo "JetBackup License Status: $(curl -m 30 -LSs "https://billing.jetapps.com/verify.php?ip=${MYIP}" |grep 'JetBackup Status' | awk '{print $3}' | tr -d "</h3>")" || echo "[FAIL] Failed obtaining outgoing IP in previous step."
+[[ -n ${MYIP} ]] && echo "JetBackup License Status: $(curl -m 30 -LSs "https://billing.jetapps.com/verify.php?ip=${MYIP}" |grep 'JetBackup Status' | awk '{print $3}' | tr -d "</h3>")" || echo "[WARN] Skipped License Check - Failed to obtain IP address in outgoing IP step."
 echo "${LINEBREAK}"
 
 }
@@ -86,19 +86,20 @@ echo "cPanel License Status: ${LICENSESTATUS}"
 validateLicense
 ;;
 DirectAdmin) echo "Panel: ${PANEL}"
-[[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup version found"
+[[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup 5 version information available."
 validateLicense
 ;;
 Plesk) echo "Panel: ${PANEL}"
-[[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup version found"
+[[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup 5 version information available."
 validateLicense
 ;;
 InterWorx) echo "Panel: ${PANEL}"
-[[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup version found"
+[[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup 5 version information available."
 validateLicense
 ;;
 *) echo "Panel: N/A"
-[[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup version found"
+[[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup 5 version information available."
+[[ -n $JB4Version ]] && echo "JB4 Version: ${JB4Version}" 
 validateLicense
 ;;
 esac
