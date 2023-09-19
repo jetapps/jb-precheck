@@ -1,5 +1,5 @@
 #!/bin/bash
-
+#set -o pipefail
 # JetBackup Pre-Check Troubleshooting Script 
 
 # Copyright 2023, JetApps, LLC.
@@ -23,15 +23,92 @@
 # AUTHOR: Clark Poppa
 # CURRENT MAINTAINER: JetApps, LLC
 
-
 LINEBREAK="********************************"
 
+
+getIP() {
+
 echo "${LINEBREAK}"
-echo "Trying CURL to get outgoing public IP address..."
+echo "Attempting to find outgoing public IP address..."
 MYIP="$(curl -sS -4 ifconfig.me)"
 [[ $? != 0 ]] && echo "Failed CURL to determine outgoing IP address. May be blocked by Firewall or CSF."
 [[ -n ${MYIP} ]] && echo "OUTGOING SERVER IP: $MYIP"
+}
+
+
+
+getOS() {
+
+  echo "${LINEBREAK}"
+  echo "Server Details:"
+[[ ! -f /etc/os-release ]] && echo "Aborted: Can't find /etc/os-release file" 
+if [ -f /etc/os-release ]; then
+. /etc/os-release
+OS=$NAME
+VER=$VERSION_ID
+ID=$ID
+fi
+
+echo "OS: $NAME $VERSION_ID"
+
+
+}
+
+
+validateLicense() {
+
+[[ -n ${MYIP} ]] && echo "JetBackup License Status: $(curl -m 30 -LSs "https://billing.jetapps.com/verify.php?ip=${MYIP}" |grep 'JetBackup Status' | awk '{print $3}' | tr -d "</h3>")" || echo "[FAIL] Failed obtaining outgoing IP in previous step."
 echo "${LINEBREAK}"
+
+}
+
+
+getPanelDetails() {
+
+JBVersion="$(jetbackup5 --version 2>/dev/null| sed "2 d")" 
+JB4Version="$(jetbackup --version 2>/dev/null| sed "2 d")"
+
+# Checking the installed control panel
+PANEL=""
+[[ -x "$(command -v uapi)" || -x "$(command -v whmapi1)" ]] && PANEL="cPanel/WHM"
+[[ -x "$(command -v /usr/local/directadmin/directadmin)" ]] && PANEL="DirectAdmin"
+[[ -x "$(command -v plesk)" ]] && PANEL="Plesk"
+[[ -x "$(command -v /usr/bin/nodeworx)" ]] && PANEL="InterWorx"
+
+# Per-Panel Checks
+
+case ${PANEL} in 
+cPanel/WHM) echo "Panel: ${PANEL}"
+[[ -n $JBVersion ]] && echo "JB5 Version: ${JBVersion}"
+[[ -n $JB4Version ]] && echo "JB4 Version: ${JB4Version}" 
+LICENSESTATUS="$(curl -LSs https://verify.cpanel.net/index.cgi?ip=${MYIP} | grep 'cPanel/WHM</td' -A1 | sed -n 2p  | perl -pe 's/<[^>]*>//g')"
+echo "cPanel License Status: ${LICENSESTATUS}"
+validateLicense
+;;
+DirectAdmin) echo "Panel: ${PANEL}"
+[[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup version found"
+validateLicense
+;;
+Plesk) echo "Panel: ${PANEL}"
+[[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup version found"
+validateLicense
+;;
+InterWorx) echo "Panel: ${PANEL}"
+[[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup version found"
+validateLicense
+;;
+*) echo "Panel: N/A"
+[[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup version found"
+validateLicense
+;;
+esac
+
+}
+
+getIP
+getOS
+getPanelDetails
+
 ################################################################
 # Check Connectivity to JetLicense 
 ################################################################
@@ -43,7 +120,7 @@ STATUS=$?
 if [[ ${STATUS} -gt 0 ]] ; then
 echo "WARNING: Unable to connect to JetLicense or received unexpected response. Escalate to L2!"
 elif [[ ${STATUS} == 0 ]] ; then
-echo "SUCCESS: Successfully connected to JetLicense. No connectivity issues were found"
+echo "OK"
 fi
 echo "${LINEBREAK}"
 echo "Attempting to connect to JetApps Repo..."
@@ -53,7 +130,7 @@ STATUSR=$?
 if [[ ${STATUSR} != 0 ]] ; then
 echo "WARNING: Unable to connect to JetApps Repo or received unexpected response. Check with L2!"
 elif [[ ${STATUSR} == 0 ]] ; then
-echo "SUCCESS: Successfully connected to JetApps Repo. No connectivity issues were found"
+echo "OK"
 fi
 echo "${LINEBREAK}"
 
@@ -77,8 +154,16 @@ echo "Additional JetBackup Crons Found: ${file}".
 ADDL_CRON=1
 fi
 done
+
+# JB_CRON_PATH=(
+#     "/etc/cron.d/jetapps"
+# )
+# #TODO
+# JB5_regex=( $(find /etc/cron.d -maxdepth 1 | grep -E 'jet(apps|api|backup5api|backup5|cli|mongo)|.*CSPupdate|update_jetbackup|esp\b|gblicensecp|licensecp|licensejp|gbcp'))
+# # diff_array=( $("${JB5_BINFILES[@]}" "${JB5_regex[@]}"| sort | uniq -d))
+# COUNT_B=$(echo ${JB5_BINFILES[@]} ${JB5_regex[@]} | tr ' ' '\n' | sort | uniq -u | wc -l)
+
 [[ -n "$ADDL_CRON" ]] && echo "WARN: Custom crons can effect JB function. Verify there are no conflicts." || echo "Crons OK"
-echo "${LINEBREAK}"
 
 ################################################################
 # Check binaries 
@@ -95,7 +180,7 @@ JB5_BINFILES=(
     "${JB5_BIN_PATH}/jetmongo"
 )
 
-JB5_regex=( $(find /usr/bin/ -maxdepth 1 | grep -E 'jet(apps|api|backup5api|backup5|cli|mongo)|.*CSPupdate|update_jetbackup|esp\b'))
+JB5_regex=( $(find /usr/bin/ -maxdepth 1 | grep -E 'jet(apps|api|backup5api|backup5|cli|mongo)|.*CSPupdate|update_jetbackup|esp\b|gblicensecp\b|/usr/bin/gblicensecpcheck\b'))
 # diff_array=( $("${JB5_BINFILES[@]}" "${JB5_regex[@]}"| sort | uniq -d))
 COUNT_B=$(echo ${JB5_BINFILES[@]} ${JB5_regex[@]} | tr ' ' '\n' | sort | uniq -u | wc -l)
 
@@ -159,7 +244,7 @@ echo "JetBackup 5 service not running."
 echo "Checking journalctl for errors. Displaying last 10 journalctl entries. This could take a while..."
 journalctl -q -u jetbackup5d -n 10 --no-pager
 else 
-echo -e "jetbackup5d service:\nOK\n"
+echo -e "jetbackup5d service:\nOK"
 fi
 
 echo "${LINEBREAK}"
@@ -169,7 +254,7 @@ echo "jetmongod service not running."
 echo "Checking logs for errors. Displaying last 5 logged errors. This could take a while..."
 grep -E '"s":"E"|Fatal assertion|WiredTiger error' /usr/local/jetapps/var/log/mongod/mongod.log | tail -5
 else 
-echo -e "jetmongod service:\nOK\n"
+echo -e "jetmongod service:\nOK"
 fi
 
 echo "${LINEBREAK}"
