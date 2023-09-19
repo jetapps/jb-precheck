@@ -1,5 +1,5 @@
 #!/bin/bash
-set -o pipefail
+#set -o pipefail
 # JetBackup Pre-Check Troubleshooting Script 
 
 # Copyright 2023, JetApps, LLC.
@@ -181,7 +181,7 @@ JB5_BINFILES=(
     "${JB5_BIN_PATH}/jetmongo"
 )
 
-JB5_regex=( $(find /usr/bin/ -maxdepth 1 | grep -E 'jet(apps|api|backup5api|backup5|cli|mongo)|.*CSPupdate|update_jetbackup|esp\b|gblicensecp\b|/usr/bin/gblicensecpcheck\b'))
+JB5_regex=( $(find /usr/bin/ -maxdepth 1 | grep -E 'jet(apps|api|backup5api|backup5|cli|mongo)|.*CSPupdate|update_jetbackup|esp\b|gblicensecp\b|gblicensecpcheck\b'))
 # diff_array=( $("${JB5_BINFILES[@]}" "${JB5_regex[@]}"| sort | uniq -d))
 COUNT_B=$(echo ${JB5_BINFILES[@]} ${JB5_regex[@]} | tr ' ' '\n' | sort | uniq -u | wc -l)
 
