@@ -110,6 +110,7 @@ getIP
 getOS
 getPanelDetails
 
+
 ################################################################
 # Check Connectivity to JetLicense 
 ################################################################
@@ -139,30 +140,63 @@ echo "${LINEBREAK}"
 # Check cron 
 ################################################################
 
+
+fraud_check() {
+
+echo "Checking for fraud..."
+# Known binaries or crons that cause problems with JetBackup. 
+# IMPORTANT: *** Any Binary or Cron listed below is **NOT** developed or distributed by JetApps, nor has any relation to our software. ***
+#FRAUD_BIN=( $(find /usr/bin/ -maxdepth 1 | grep -Ei 'regex') )
+#FRAUD_CRON=( $(find /etc/cron.d/ -maxdepth 3 | grep -Ei 'regex') )
+
+if [[ "$(type -t mapfile)" == "builtin" ]]; 
+then
+mapfile -t FRAUD_BIN < <(find /usr/bin/ -maxdepth 1 | grep -Ei 'CSPupdate|update_jetbackup|esp\b|gblicensecp\b|gblicensecpcheck\b|GbCpanel|gbcpcronbackup|gblicensecp|gblicensecpcheck')
+mapfile -t FRAUD_CRONS < <(find /etc/cron.d/ -maxdepth 3 | grep -Ei 'licensecp|licensejp|gblicensecp|Rcjetbackup|RcLicenseJetBackup|RCcpanelv3|esp_jetbackup|esp\b|gbcp\b')
+fi
+
+
+for BIN in "${FRAUD_BIN[@]}" ; do
+IFS=$'\n'
+if [[ -n "${BIN}" ]]; then
+echo "[WARN] FOUND FRAUDULENT BINARY: ${BIN}"
+FRAUD_DETECTED=1
+fi
+done
+
+for CRON in "${FRAUD_CRONS[@]}" ; do
+IFS=$'\n'
+if [[ -n "${CRON}" ]]; then
+echo "[WARN] FOUND FRAUDULENT CRON: ${CRON}"
+FRAUD_DETECTED=1
+fi
+done
+
+[[ -n $FRAUD_DETECTED ]] && echo "ABORTED: EVIDENCE OF LICENSE CIRCUMVENTION. INELIGIBLE FOR SUPPORT" && exit 1 || echo "OK"
+#TODO: Check for License.inc 
+
+}
+
+fraud_check
+
+echo "${LINEBREAK}"
 echo "Checking Crons for issues..."
 JB4_CRON_FILE="/etc/cron.d/jetbackup"
 JETAPPS_CRON_FILE="/etc/cron.d/jetapps"
 
-! [[ -f ${JB4_CRON_FILE} ]] && echo "${JB4_CRON_FILE} Cron file missing. This could cause issues running schedules in JetBackup 4.x."
+[[ ! -f ${JB4_CRON_FILE} && -n ${JB4Version} ]] && echo "${JB4_CRON_FILE} Cron file missing. This could cause issues running schedules in JetBackup 4.x."
 
 ! [[ -f ${JETAPPS_CRON_FILE} ]] && echo "WARN: Auto Update Cron ${JETAPPS_CRON_FILE} not found. You may not receive updates."
 
 JB_CRONS="/etc/cron.d"
 for file in "${JB_CRONS}"/*?et?ackup* ; do
 IFS=$'\n'
-if [[ -f "$file" ]] && [[ "$file" != 'jetbackup' ]] && [[ "$file" != *"rpmsave" ]]; then
+if [[ -f "$file" ]] && [[ "$file" != "/etc/cron.d/jetbackup" ]] && [[ "$file" != *"rpmsave" ]]; then
 echo "Additional JetBackup Crons Found: ${file}".
 ADDL_CRON=1
 fi
 done
 
-# JB_CRON_PATH=(
-#     "/etc/cron.d/jetapps"
-# )
-# #TODO
-# JB5_regex=( $(find /etc/cron.d -maxdepth 1 | grep -E 'jet(apps|api|backup5api|backup5|cli|mongo)|.*CSPupdate|update_jetbackup|esp\b|gblicensecp|licensecp|licensejp|gbcp'))
-# # diff_array=( $("${JB5_BINFILES[@]}" "${JB5_regex[@]}"| sort | uniq -d))
-# COUNT_B=$(echo ${JB5_BINFILES[@]} ${JB5_regex[@]} | tr ' ' '\n' | sort | uniq -u | wc -l)
 
 [[ -n "$ADDL_CRON" ]] && echo "WARN: Custom crons can effect JB function. Verify there are no conflicts." || echo "Crons OK"
 
@@ -171,7 +205,7 @@ done
 ################################################################
 
 echo "${LINEBREAK}"
-echo "Checking for missing or unexpected binaries..."
+echo "Checking for missing binaries..."
 # https://saasbase.dev/tools/regex-generator
 JB5_BIN_PATH="/usr/bin"
 JB5_BINFILES=(
@@ -181,7 +215,7 @@ JB5_BINFILES=(
     "${JB5_BIN_PATH}/jetmongo"
 )
 
-JB5_regex=( $(find /usr/bin/ -maxdepth 1 | grep -E 'jet(apps|api|backup5api|backup5|cli|mongo)|.*CSPupdate|update_jetbackup|esp\b|gblicensecp\b|gblicensecpcheck\b'))
+JB5_regex=( $(find /usr/bin/ -maxdepth 1 | grep -E 'jet(apps|api|backup5api|backup5|cli|mongo)'))
 # diff_array=( $("${JB5_BINFILES[@]}" "${JB5_regex[@]}"| sort | uniq -d))
 COUNT_B=$(echo ${JB5_BINFILES[@]} ${JB5_regex[@]} | tr ' ' '\n' | sort | uniq -u | wc -l)
 
