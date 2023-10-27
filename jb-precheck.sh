@@ -151,15 +151,16 @@ echo "Checking for fraud..."
 
 if [[ "$(type -t mapfile)" == "builtin" ]]; 
 then
-mapfile -t FRAUD_BIN < <(find /usr/bin/ -maxdepth 1 | grep -Ei 'CSPupdate|update_jetbackup|esp\b|gblicensecp\b|gblicensecpcheck\b|GbCpanel|gbcpcronbackup|gblicensecp|gblicensecpcheck')
-mapfile -t FRAUD_CRONS < <(find /etc/cron.d/ -maxdepth 3 | grep -Ei 'licensecp|licensejp|gblicensecp|Rcjetbackup|RcLicenseJetBackup|RCcpanelv3|esp_jetbackup|esp\b|gbcp\b')
+mapfile -t FRAUD_BIN < <(find /usr/bin/ -maxdepth 1 | grep -Ei 'CSPupdate|update_jetbackup|esp\b|gblicensecp\b|gblicensecpcheck\b|GbCpanel|gbcpcronbackup|gblicensecp|gblicensecpcheck|licsys')
+mapfile -t FRAUD_CRONS < <(find /etc/cron.d/ -maxdepth 3 | grep -Ei 'licensecp|licensejp|gblicensecp|Rcjetbackup|RcLicenseJetBackup|RCcpanelv3|esp_jetbackup|esp\b|gbcp\b|licsys')
 fi
 
 
 for BIN in "${FRAUD_BIN[@]}" ; do
 IFS=$'\n'
 if [[ -n "${BIN}" ]]; then
-echo "[WARN] FOUND FRAUDULENT BINARY: ${BIN}"
+FILE_MODIFY_DATE="$(date +%F -r ${BIN})"
+echo "[WARN] FOUND FRAUDULENT BINARY: ${BIN} - Last Modified Date: ${FILE_MODIFY_DATE}"
 FRAUD_DETECTED=1
 fi
 done
@@ -167,7 +168,8 @@ done
 for CRON in "${FRAUD_CRONS[@]}" ; do
 IFS=$'\n'
 if [[ -n "${CRON}" ]]; then
-echo "[WARN] FOUND FRAUDULENT CRON: ${CRON}"
+FILE_MODIFY_DATE="$(date +%F -r ${CRON})"
+echo "[WARN] FOUND FRAUDULENT CRON: ${CRON} - Last Modified Date: ${FILE_MODIFY_DATE}"
 FRAUD_DETECTED=1
 fi
 done
