@@ -278,7 +278,7 @@ echo "${LINEBREAK}"
 
 if [[ -x "$(command -v needs-restarting)" ]]; then
 echo "Checking if services need restarting..."
-NEEDRESTART=$(needs-restarting -s |grep -Ei 'jetbackup5d|jetmongod' | awk -F. '{print $1}')
+NEEDRESTART=$(needs-restarting -s 2>/dev/null |grep -Ei 'jetbackup5d|jetmongod' | awk -F. '{print $1}')
 if [[ -n ${NEEDRESTART} ]]; then
 echo "[WARN] needs-restarting recommends restart of JB services. Verify no backups, restores, or downloads are running then try restarting the services listed below:"
 printf '%s\n' "${NEEDRESTART[@]}"
