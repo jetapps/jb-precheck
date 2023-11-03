@@ -276,22 +276,35 @@ echo "${LINEBREAK}"
 # Check journalctl for errors
 ################################################################
 
+if [[ -x "$(command -v needs-restarting)" ]]; then
+echo "Checking if services need restarting..."
+NEEDRESTART=$(needs-restarting -s |grep -Ei 'jetbackup5d|jetmongod' | awk -F. '{print $1}')
+if [[ -n ${NEEDRESTART} ]]; then
+echo "[WARN] needs-restarting recommends restart of JB services. Verify no backups, restores, or downloads are running then try restarting the services listed below:"
+printf '%s\n' "${NEEDRESTART[@]}"
+else
+echo "OK"
+fi
+fi
+
+echo "${LINEBREAK}"
+
 if [[ $(systemctl -q is-active jetbackup5d > /dev/null 2>&1 ; echo $?) != 0 ]]; then 
 echo "JetBackup 5 service not running."
-echo "Checking journalctl for errors. Displaying last 10 journalctl entries. This could take a while..."
+echo "Checking journalctl for errors. Displaying last 10 journalctl entries."
 journalctl -q -u jetbackup5d -n 10 --no-pager
 else 
-echo -e "jetbackup5d service:\nOK"
+echo -e "jetbackup5d service:\nactive"
 fi
 
 echo "${LINEBREAK}"
 
 if [[ $(systemctl -q is-active jetmongod > /dev/null 2>&1 ; echo $?) != 0 ]]; then 
 echo "jetmongod service not running."
-echo "Checking logs for errors. Displaying last 5 logged errors. This could take a while..."
-grep -E '"s":"E"|Fatal assertion|WiredTiger error' /usr/local/jetapps/var/log/mongod/mongod.log | tail -5
+echo "Checking logs for errors. Displaying last 10 logged errors."
+grep -E '"s":"E"|Fatal assertion|WiredTiger error' /usr/local/jetapps/var/log/mongod/mongod.log | tail -10
 else 
-echo -e "jetmongod service:\nOK"
+echo -e "jetmongod service:\nactive"
 fi
 
 echo "${LINEBREAK}"
