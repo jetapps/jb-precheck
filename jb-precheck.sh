@@ -57,7 +57,9 @@ echo "OS: $NAME $VERSION_ID"
 
 validateLicense() {
 
-[[ -n ${MYIP} ]] && echo "JetBackup License Status: $(curl -m 30 -LSs "https://billing.jetapps.com/verify.php?ip=${MYIP}" |grep 'JetBackup Status' | awk '{print $3}' | tr -d "</h3>")" || echo "[WARN] Skipped License Check - Failed to obtain IP address in outgoing IP step."
+#[[ -n ${MYIP} ]] && echo "JetBackup License Status: $(curl -m 30 -LSs "https://billing.jetapps.com/verify.php?ip=${MYIP}" |grep 'JetBackup Status' | awk '{print $3}' | tr -d "</h3>")" || echo "[WARN] Skipped License Check - Failed to obtain IP address in outgoing IP step."
+[[ -n ${MYIP} ]] && echo -e "JetBackup License Status (Activation Date, Type, Partner, Status): \n$(curl -m 30 -LSs https://billing.jetapps.com/verify.php?ip=${MYIP} | grep -i 'jetlicense_info' -A11 | grep 'start' -A4 | cut -d ">" -f 2 | sed 's|</td||g' | sed 's|</th||g')" || echo "[WARN] Skipped License Check - Failed to obtain IP address in outgoing IP step."
+
 echo "${LINEBREAK}"
 
 }
@@ -79,6 +81,7 @@ PANEL=""
 
 case ${PANEL} in 
 cPanel/WHM) echo "Panel: ${PANEL}"
+echo "Panel Version: $(cat /usr/local/cpanel/version 2>/dev/null)"
 [[ -n $JBVersion ]] && echo "JB5 Version: ${JBVersion}"
 [[ -n $JB4Version ]] && echo "JB4 Version: ${JB4Version}" 
 LICENSESTATUS="$(curl -LSs https://verify.cpanel.net/index.cgi?ip=${MYIP} | grep 'cPanel/WHM</td' -A1 | sed -n 2p  | perl -pe 's/<[^>]*>//g')"
@@ -86,14 +89,18 @@ echo "cPanel License Status: ${LICENSESTATUS}"
 validateLicense
 ;;
 DirectAdmin) echo "Panel: ${PANEL}"
+echo "Panel Version: $(/usr/local/directadmin/directadmin v | awk '{print $2, $3}')"
 [[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup 5 version information available."
+
 validateLicense
 ;;
 Plesk) echo "Panel: ${PANEL}"
+echo "Panel Version:$(plesk -v | awk 'NR==1' |cut -d ":" -f 2)"
 [[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup 5 version information available."
 validateLicense
 ;;
 InterWorx) echo "Panel: ${PANEL}"
+echo "Panel Version: $(grep 'rpm.release="' /usr/local/interworx/iworx.ini | cut -d "\"" -f 2)"
 [[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup 5 version information available."
 validateLicense
 ;;
@@ -151,8 +158,8 @@ echo "Checking for fraud..."
 
 if [[ "$(type -t mapfile)" == "builtin" ]]; 
 then
-mapfile -t FRAUD_BIN < <(find /usr/bin/ -maxdepth 1 | grep -Ei 'CSPupdate|update_jetbackup|esp\b|gblicensecp\b|gblicensecpcheck\b|GbCpanel|gbcpcronbackup|gblicensecp|gblicensecpcheck|licsys')
-mapfile -t FRAUD_CRONS < <(find /etc/cron.d/ -maxdepth 3 | grep -Ei 'licensecp|licensejp|gblicensecp|Rcjetbackup|RcLicenseJetBackup|RCcpanelv3|esp_jetbackup|esp\b|gbcp\b|licsys')
+mapfile -t FRAUD_BIN < <(find /usr/bin/ -maxdepth 1 | grep -Ei 'CSPupdate|update_jetbackup|\besp\b|esp_jetbackup|gblicensecp\b|gblicensecpcheck\b|GbCpanel|gbcpcronbackup|gblicensecp|gblicensecpcheck|licsys')
+mapfile -t FRAUD_CRONS < <(find /etc/cron.d/ -maxdepth 3 | grep -Ei 'licensecp|licensejp|gblicensecp|Rcjetbackup|RcLicenseJetBackup|RCcpanelv3|esp_jetbackup|\besp\b|gbcp\b|licsys')
 fi
 
 
