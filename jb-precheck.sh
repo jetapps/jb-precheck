@@ -57,6 +57,8 @@ echo "OS: $NAME $VERSION_ID"
 
 validateLicense() {
 
+echo "${LINEBREAK}"
+
 #[[ -n ${MYIP} ]] && echo "JetBackup License Status: $(curl -m 30 -LSs "https://billing.jetapps.com/verify.php?ip=${MYIP}" |grep 'JetBackup Status' | awk '{print $3}' | tr -d "</h3>")" || echo "[WARN] Skipped License Check - Failed to obtain IP address in outgoing IP step."
 [[ -n ${MYIP} ]] && echo -e "JetBackup License Status (Activation Date, Type, Partner, Status): \n$(curl -m 30 -LSs https://billing.jetapps.com/verify.php?ip=${MYIP} | grep -i 'jetlicense_info' -A11 | grep 'start' -A4 | cut -d ">" -f 2 | sed 's|</td||g' | sed 's|</th||g')" || echo "[WARN] Skipped License Check - Failed to obtain IP address in outgoing IP step."
 
@@ -82,10 +84,10 @@ PANEL=""
 case ${PANEL} in 
 cPanel/WHM) echo "Panel: ${PANEL}"
 echo "Panel Version: $(cat /usr/local/cpanel/version 2>/dev/null)"
-[[ -n $JBVersion ]] && echo "JB5 Version: ${JBVersion}"
-[[ -n $JB4Version ]] && echo "JB4 Version: ${JB4Version}" 
 LICENSESTATUS="$(curl -LSs https://verify.cpanel.net/index.cgi?ip=${MYIP} | grep 'cPanel/WHM</td' -A1 | sed -n 2p  | perl -pe 's/<[^>]*>//g')"
 echo "cPanel License Status: ${LICENSESTATUS}"
+[[ -n $JBVersion ]] && echo "JB5 Version: ${JBVersion}"
+[[ -n $JB4Version ]] && echo "JB4 Version: ${JB4Version}" 
 validateLicense
 ;;
 DirectAdmin) echo "Panel: ${PANEL}"
