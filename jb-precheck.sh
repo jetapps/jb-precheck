@@ -66,7 +66,6 @@ fi
 validateLicense() {
 
 echo "${LINEBREAK}"
-
 [[ -n ${MYIP} ]] && echo -e "JetBackup License Status (Activation Date, Type, Partner, Status): \n$(curl -m 30 -LSs https://billing.jetapps.com/verify.php?ip=${MYIP} | grep -i 'jetlicense_info' -A11 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g')" | tr -s "[:space:]" || echo "[WARN] Skipped License Check - Failed to obtain IP address in outgoing IP step."
 
 echo "${LINEBREAK}"
@@ -112,10 +111,14 @@ MinVersionCheck() {
 
 
 
-echo "Determing whether JB5 is out of date..."
+echo "Determining whether JB5 is out of date..."
 
-current_version=$(jetbackup5 --version 2>/dev/null | awk -F "|" '{print $1}' | awk -F " " '{print $NF}' | sed -n 1p)
-updates_tier=$(jetbackup5 --version 2>/dev/null | awk -F "|" '{print $2}' | grep -oP "(?<=Current Tier )[A-Z]+" | tr '[:upper:]' '[:lower:]')
+
+# current_version=$(jetbackup5 --version 2>/dev/null | awk -F "|" '{print $1}' | awk -F " " '{print $NF}' | sed -n 1p)
+# updates_tier=$(jetbackup5 --version 2>/dev/null | awk -F "|" '{print $2}' | grep -oP "(?<=Current Tier )[A-Z]+" | tr '[:upper:]' '[:lower:]')
+
+[[ -n $JBVersion ]] && current_version=$(echo "${JBVersion}" | awk -F "|" '{print $1}' | awk -F " " '{print $NF}' | sed -n 1p)
+[[ -n $JBVersion ]] && updates_tier=$(echo "${JBVersion}" | awk -F "|" '{print $2}' | grep -oP "(?<=Current Tier )[A-Z]+" | tr '[:upper:]' '[:lower:]')
 
 # Only checking the first 3 digits of the version. 
 if [[ -n ${RPM_PKG} ]]; then
