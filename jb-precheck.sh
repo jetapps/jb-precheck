@@ -1,5 +1,4 @@
 #!/bin/bash
-#set -o pipefail
 # JetBackup Pre-Check Troubleshooting Script 
 
 # Copyright 2023, JetApps, LLC.
@@ -25,6 +24,7 @@
 
 LINEBREAK="********************************"
 
+set -o pipefail
 
 getIP() {
 
@@ -49,8 +49,16 @@ VER=$VERSION_ID
 ID=$ID
 fi
 
-echo "OS: $NAME $VERSION_ID"
+  echo "OS: $NAME $VERSION_ID"
 
+# Determine the package manager. 
+if [[ -x "$(command -v yum)" || -x "$(command -v dnf)" ]]; then
+RPM_PKG=1
+elif [[ -x "$(command -v apt-get)" ]]; then
+APT_PKG=1
+else 
+	echo -en "[ERROR] Failed fetching package manager." 
+fi
 
 }
 
@@ -59,8 +67,76 @@ validateLicense() {
 
 echo "${LINEBREAK}"
 
-#[[ -n ${MYIP} ]] && echo "JetBackup License Status: $(curl -m 30 -LSs "https://billing.jetapps.com/verify.php?ip=${MYIP}" |grep 'JetBackup Status' | awk '{print $3}' | tr -d "</h3>")" || echo "[WARN] Skipped License Check - Failed to obtain IP address in outgoing IP step."
-[[ -n ${MYIP} ]] && echo -e "JetBackup License Status (Activation Date, Type, Partner, Status): \n$(curl -m 30 -LSs https://billing.jetapps.com/verify.php?ip=${MYIP} | grep -i 'jetlicense_info' -A11 | grep 'start' -A4 | cut -d ">" -f 2 | sed 's|</td||g' | sed 's|</th||g')" || echo "[WARN] Skipped License Check - Failed to obtain IP address in outgoing IP step."
+[[ -n ${MYIP} ]] && echo -e "JetBackup License Status (Activation Date, Type, Partner, Status): \n$(curl -m 30 -LSs https://billing.jetapps.com/verify.php?ip=${MYIP} | grep -i 'jetlicense_info' -A11 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g')" | tr -s "[:space:]" || echo "[WARN] Skipped License Check - Failed to obtain IP address in outgoing IP step."
+
+echo "${LINEBREAK}"
+
+}
+
+
+################################################################
+# Check Connectivity to JetLicense 
+################################################################
+
+JetLicense_Test() {
+
+
+echo "Attempting to connect to JetLicense..."
+echo "CMD: curl -m 30 -vsSL https://check.jetlicense.com"
+CONJL=$(curl -m 30 -sSL https://check.jetlicense.com -d "product_id=111111111111111111111111" |grep "No valid Product ID was found" 1>/dev/null 2>&1)
+STATUS=$?
+if [[ ${STATUS} -gt 0 ]] ; then
+echo "WARNING: Unable to connect to JetLicense or received unexpected response. Escalate to L2!"
+elif [[ ${STATUS} == 0 ]] ; then
+echo "OK"
+fi
+echo "${LINEBREAK}"
+echo "Attempting to connect to JetApps Repo..."
+echo "CMD: curl -m 30 -vsSL https://repo.jetlicense.com"
+CONREPO=$(curl -m 30 -sSL https://repo.jetlicense.com |grep -q "LiteSpeed Web Server at repo.jetlicense.com Port 443" 1>/dev/null 2>&1)
+STATUSR=$?
+if [[ ${STATUSR} != 0 ]] ; then
+echo "WARNING: Unable to connect to JetApps Repo or received unexpected response. Check with L2!"
+elif [[ ${STATUSR} == 0 ]] ; then
+echo "OK"
+fi
+echo "${LINEBREAK}"
+
+}
+
+################################################################
+# Compare installed version to latest version from repository
+################################################################
+
+MinVersionCheck() {
+
+
+
+echo "Determing whether JB5 is out of date..."
+
+current_version=$(jetbackup5 --version 2>/dev/null | awk -F "|" '{print $1}' | awk -F " " '{print $NF}' | sed -n 1p)
+updates_tier=$(jetbackup5 --version 2>/dev/null | awk -F "|" '{print $2}' | grep -oP "(?<=Current Tier )[A-Z]+" | tr '[:upper:]' '[:lower:]')
+
+# Only checking the first 3 digits of the version. 
+if [[ -n ${RPM_PKG} ]]; then
+  LATEST_STABLE=$(curl -m 30 -LSs http://repo.jetlicense.com/centOS/8/x86_64/${updates_tier}/RPMS/ | grep "jetbackup5-${panel}" | awk -F ' ' '{print $5}' | sed -n 's#href=".*">\(.*\)</a>.*#\1#p' | awk -F '-' '{print $3}' | sort | tail -1)
+elif [[ -n ${APT_PKG} ]]; then
+  LATEST_STABLE=$(curl -m 30 -LSs http://repo.jetlicense.com/debian/dists/bullseye/${updates_tier}/main/binary-amd64/ | grep "jetbackup5-${panel}" | awk -F ' ' '{print $5}' | sed -n 's#href=".*">\(.*\)</a>.*#\1#p' | awk -F '-' '{print $3}' | sort | tail -1)
+fi
+
+# If either variable is empty, skip the rest of the function.
+[[ -z "${current_version}" || -z ${LATEST_STABLE} ]] && echo "Failed to determine versions for compare." && return 1
+
+# Convert the version number to remove periods. Required for the proceeding if statement.
+function version_parse { echo "$@" | awk -F. '{ printf("%d%03d%03d%03d\n", $1,$2,$3,$4); }'; }
+if [[ $(version_parse $current_version) -ge $(version_parse $LATEST_STABLE) ]]; then
+    echo -e "Version ${current_version} is up to date.\nOK"
+    else
+    WARNING_OLD_VERSION=1
+    echo "[WARN] JetBackup 5 version is outdated! Got ${current_version} Expected ${LATEST_STABLE} - Updates Tier: ${updates_tier}"
+fi
+
+[[ $WARNING_OLD_VERSION == 1 ]] && echo -e "[WARN] The installed JetBackup 5 version is older than the latest ${updates_tier} release!\nUpdate with the command:\n jetapps -u jetbackup5-${panel}"
 
 echo "${LINEBREAK}"
 
@@ -74,10 +150,10 @@ JB4Version="$(jetbackup --version 2>/dev/null| sed "2 d")"
 
 # Checking the installed control panel
 PANEL=""
-[[ -x "$(command -v uapi)" || -x "$(command -v whmapi1)" ]] && PANEL="cPanel/WHM"
-[[ -x "$(command -v /usr/local/directadmin/directadmin)" ]] && PANEL="DirectAdmin"
-[[ -x "$(command -v plesk)" ]] && PANEL="Plesk"
-[[ -x "$(command -v /usr/bin/nodeworx)" ]] && PANEL="InterWorx"
+[[ -x "$(command -v uapi)" || -x "$(command -v whmapi1)" ]] && PANEL="cPanel/WHM" && panel="cpanel"
+[[ -x "$(command -v /usr/local/directadmin/directadmin)" ]] && PANEL="DirectAdmin" && panel="directadmin"
+[[ -x "$(command -v plesk)" ]] && PANEL="Plesk" && panel="plesk"
+[[ -x "$(command -v /usr/bin/nodeworx)" ]] && PANEL="InterWorx" && panel="interworx"
 
 # Per-Panel Checks
 
@@ -109,6 +185,7 @@ validateLicense
 *) echo "Panel: N/A"
 [[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup 5 version information available."
 [[ -n $JB4Version ]] && echo "JB4 Version: ${JB4Version}" 
+panel="linux"
 validateLicense
 ;;
 esac
@@ -118,32 +195,10 @@ esac
 getIP
 getOS
 getPanelDetails
+JetLicense_Test
+MinVersionCheck
 
 
-################################################################
-# Check Connectivity to JetLicense 
-################################################################
-
-echo "Attempting to connect to JetLicense..."
-echo "CMD: curl -m 30 -vsSL https://check.jetlicense.com"
-CONJL=$(curl -m 30 -sSL https://check.jetlicense.com -d "product_id=111111111111111111111111" |grep "No valid Product ID was found" 1>/dev/null 2>&1)
-STATUS=$?
-if [[ ${STATUS} -gt 0 ]] ; then
-echo "WARNING: Unable to connect to JetLicense or received unexpected response. Escalate to L2!"
-elif [[ ${STATUS} == 0 ]] ; then
-echo "OK"
-fi
-echo "${LINEBREAK}"
-echo "Attempting to connect to JetApps Repo..."
-echo "CMD: curl -m 30 -vsSL https://repo.jetlicense.com"
-CONREPO=$(curl -m 30 -sSL https://repo.jetlicense.com |grep -q "LiteSpeed Web Server at repo.jetlicense.com Port 443" 1>/dev/null 2>&1)
-STATUSR=$?
-if [[ ${STATUSR} != 0 ]] ; then
-echo "WARNING: Unable to connect to JetApps Repo or received unexpected response. Check with L2!"
-elif [[ ${STATUSR} == 0 ]] ; then
-echo "OK"
-fi
-echo "${LINEBREAK}"
 
 ################################################################
 # Check cron 
@@ -152,6 +207,8 @@ echo "${LINEBREAK}"
 
 fraud_check() {
 
+
+echo "${LINEBREAK}"
 echo "Checking for fraud..."
 # Known binaries or crons that cause problems with JetBackup. 
 # IMPORTANT: *** Any Binary or Cron listed below is **NOT** developed or distributed by JetApps, nor has any relation to our software. ***
@@ -258,6 +315,7 @@ echo "DONE."
     done
 done
 
+#TODO: Check /etc
 CHECKONLY_DIRS=( /tmp /dev/null )
 for dir in "${CHECKONLY_DIRS[@]}"
 do
