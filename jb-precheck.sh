@@ -29,10 +29,27 @@ set -o pipefail
 getIP() {
 
 echo "${LINEBREAK}"
+
+# Determine the IP address protocol to use from JB5
+if [[ -f /usr/local/jetapps/etc/.mongod.auth ]]; 
+then
+echo "Checking the default IP Protocol set for JB5..."
+source /usr/local/jetapps/etc/.mongod.auth
+FORCE_IP=$( /usr/local/jetapps/usr/bin/mongosh --quiet --port $PORT -u $USER -p $PASS --authenticationDatabase admin --eval 'print(db.config.find({_id:"license"}).next().force_ip);' jetbackup5 )
+fi
+# Default to IPv4 if not found or set to auto
+[[ ${FORCE_IP} -eq 0 ]] && FORCE_IP=4
+[[ -z ${FORCE_IP} ]] && FORCE_IP=4
+
 echo "Attempting to find outgoing public IP address..."
-MYIP="$(curl -sS -4 ifconfig.me)"
-[[ $? != 0 ]] && echo "Failed CURL to determine outgoing IP address. May be blocked by Firewall or CSF."
+MYIP="$(curl \-${FORCE_IP} -sS ifconfig.me)"
+# If forcing IPv4 returns an error, try IPv6 just to be sure.
+[[ $? != 0 && ${FORCE_IP} -eq 6 ]] && MYIP="$(curl -4 -sS ifconfig.me)"
+[[ $? != 0 && ${FORCE_IP} -eq 4 ]] && MYIP="$(curl -sS ifconfig.me)"
+[[ -z ${MYIP} ]] && echo "ERROR - Could not find a valid IPv4 or IPv6 address. CURL may have been blocked by Firewall or CSF."
 [[ -n ${MYIP} ]] && echo "OUTGOING SERVER IP: $MYIP"
+
+
 }
 
 
@@ -66,8 +83,19 @@ fi
 validateLicense() {
 
 echo "${LINEBREAK}"
-[[ -n ${MYIP} ]] && echo -e "JetBackup License Status (Activation Date, Type, Partner, Status): \n$(curl -m 30 -LSs https://billing.jetapps.com/verify.php?ip=${MYIP} | grep -i 'jetlicense_info' -A11 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g')" | tr -s "[:space:]" || echo "[WARN] Skipped License Check - Failed to obtain IP address in outgoing IP step."
 
+# 58ac64be19a4643cdf582727
+# [[ -n ${MYIP} ]] && echo -e "JetBackup License Status (Activation Date, Type, Partner, Status): \n$(curl --get \-${FORCE_IP} -m 30 -LSs --data-urlencode "ip=${MYIP}" https://billing.jetapps.com/verify.php | grep -i 'jetlicense_info' -A11 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g')" | tr -s "[:space:]" || echo "[WARN] Skipped License Check - Failed to obtain IP address in outgoing IP step."
+
+[[ -n ${MYIP} ]] && echo "JetBackup License Status:"
+
+LICFORMAT="Created:
+Type:
+Partner:
+Status:"
+STATUS="$(curl --get -m 30 -LSs --data-urlencode "ip=${MYIP}" https://billing.jetapps.com/verify.php | grep -i 'jetlicense_info' -A11 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g' | tr -s "[:space:]" )"
+
+[[ -n ${STATUS} ]] && paste <(echo "$LICFORMAT") <(echo "${STATUS}" | sed '/^[[:space:]]*$/d') --delimiters ' ' || echo "Could not get License Status. (Not licensed?)"
 echo "${LINEBREAK}"
 
 }
@@ -146,6 +174,7 @@ echo "${LINEBREAK}"
 }
 
 
+
 getPanelDetails() {
 
 JBVersion="$(jetbackup5 --version 2>/dev/null| sed "2 d")" 
@@ -200,8 +229,6 @@ getOS
 getPanelDetails
 JetLicense_Test
 MinVersionCheck
-
-
 
 ################################################################
 # Check cron 
@@ -297,15 +324,13 @@ elif [[ ${COUNT_B} == 0 ]]; then
 echo "OK"
 fi
 
-echo "${LINEBREAK}"
-
 ################################################################
 # Check MongoDB paths for common problems.
 ################################################################
 
 echo "${LINEBREAK}"
 echo "Checking MongoDB permissions/ownership for common problems"
-
+#TODO: Check /etc
 MONGO_DIRS=( /usr/local/jetapps/var/lib/mongod /usr/local/jetapps/var/log/mongod /usr/local/jetapps/var/run/mongod /tmp/mongodb-27217.sock )
 for dir in "${MONGO_DIRS[@]}"
 do
@@ -318,7 +343,6 @@ echo "DONE."
     done
 done
 
-#TODO: Check /etc
 CHECKONLY_DIRS=( /tmp /dev/null )
 for dir in "${CHECKONLY_DIRS[@]}"
 do
