@@ -43,9 +43,14 @@ fi
 
 echo "Attempting to find outgoing public IP address..."
 MYIP="$(curl \-${FORCE_IP} -sS ifconfig.me)"
-# If forcing IPv4 returns an error, try IPv6 just to be sure.
-[[ $? != 0 && ${FORCE_IP} -eq 6 ]] && MYIP="$(curl -4 -sS ifconfig.me)"
-[[ $? != 0 && ${FORCE_IP} -eq 4 ]] && MYIP="$(curl -sS ifconfig.me)"
+STATUS1="$?"
+# If the above fails and force IP was 6, try with 4. But if it fails and Force IP was 4, try with 6. 
+if [[ -z ${MYIP} ]] && [[ ${STATUS1} != 0 && ${FORCE_IP} -eq 6 ]]; then
+MYIP="$(curl -4 -sS ifconfig.me)"
+elif [[ -z ${MYIP} ]] && [[ ${STATUS1} != 0 && ${FORCE_IP} -eq 4 ]]; then
+MYIP="$(curl -6 -sS ifconfig.me)"
+fi
+
 [[ -z ${MYIP} ]] && echo "ERROR - Could not find a valid IPv4 or IPv6 address. CURL may have been blocked by Firewall or CSF."
 [[ -n ${MYIP} ]] && echo "OUTGOING SERVER IP: $MYIP"
 
