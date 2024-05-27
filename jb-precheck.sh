@@ -43,10 +43,11 @@ fi
 
 echo "Attempting to find outgoing public IP address..."
 MYIP="$(curl \-${FORCE_IP} -sS ifconfig.me)"
+STATUS1="$?"
 # If the above fails and force IP was 6, try with 4. But if it fails and Force IP was 4, try with 6. 
-if [[ $? != 0 && ${FORCE_IP} -eq 6 ]]; then
+if [[ -z ${MYIP} ]] && [[ ${STATUS1} != 0 && ${FORCE_IP} -eq 6 ]]; then
 MYIP="$(curl -4 -sS ifconfig.me)"
-elif [[ $? != 0 && ${FORCE_IP} -eq 4 ]]; then
+elif [[ -z ${MYIP} ]] && [[ ${STATUS1} != 0 && ${FORCE_IP} -eq 4 ]]; then
 MYIP="$(curl -6 -sS ifconfig.me)"
 fi
 
