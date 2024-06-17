@@ -98,10 +98,12 @@ LICFORMAT="Created:
 Type:
 Partner:
 Status:"
-STATUS="$(curl --get -m 30 -LSs --data-urlencode "ip=${MYIP}" https://billing.jetapps.com/verify.php | grep -i 'jetlicense_info' -A11 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g' | tr -s "[:space:]" )"
+STATUS="$(curl --get -m 30 -LSs https://billing.jetapps.com/verify.php --data-urlencode "ip=${MYIP}" | grep -i 'jetlicense_info' -A11 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g' | tr -s "[:space:]" )"
 
-[[ -n ${STATUS} ]] && paste <(echo "$LICFORMAT") <(echo "${STATUS}" | sed '/^[[:space:]]*$/d') --delimiters ' ' || echo "Could not get License Status. (Not licensed?)"
+[[ -n ${STATUS} ]] && paste <(echo "$LICFORMAT") <(echo "${STATUS}" | sed '/^[[:space:]]*$/d') --delimiters ' ' || echo -en "Could not get License Status. (Not licensed?) \nVerify URL: https://billing.jetapps.com/verify.php?ip=${MYIP}\n"
 echo "${LINEBREAK}"
+
+
 
 }
 
