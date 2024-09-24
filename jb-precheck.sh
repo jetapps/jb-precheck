@@ -34,14 +34,16 @@ getIP() {
 echo "${LINEBREAK}"
 
 # Determine the IP address protocol to use from JB5
-if [[ -f /usr/local/jetapps/etc/.mongod.auth ]] && [[ -x /usr/local/jetapps/usr/bin/mongosh ]]; 
+if [[ -f /usr/local/jetapps/etc/.mongod.auth ]] && [[ -x /usr/local/jetapps/usr/bin/mongosh ]] && [[ "$EUID" -eq 0 ]]; 
 then
 echo "Checking the default IP Protocol set for JB5..."
 source /usr/local/jetapps/etc/.mongod.auth
 FORCE_IP=$( /usr/local/jetapps/usr/bin/mongosh --quiet --port $PORT -u $USER -p $PASS --authenticationDatabase admin --eval 'print(db.config.find({_id:"license"}).next().force_ip);' jetbackup5 )
 fi
 # Default to IPv4 if not found or set to auto
-[[ ${FORCE_IP} -eq 0 ]] && FORCE_IP=4
+# Test if Force IP is an integer value
+[[ "${FORCE_IP}" -eq "${FORCE_IP}" ]] || FORCE_IP=4
+[[ "${FORCE_IP}" -eq 0 ]] && FORCE_IP=4
 [[ -z ${FORCE_IP} ]] && FORCE_IP=4
 
 echo "Attempting to find outgoing public IP address..."
