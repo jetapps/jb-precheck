@@ -26,12 +26,15 @@ LINEBREAK="********************************"
 
 set -o pipefail
 
+# Various commands can't run without root, such as journalctl. 
+[[ "$EUID" -ne 0 ]] && echo "[WARNING] !! This script should be run as root !!" 
+
 getIP() {
 
 echo "${LINEBREAK}"
 
 # Determine the IP address protocol to use from JB5
-if [[ -f /usr/local/jetapps/etc/.mongod.auth ]]; 
+if [[ -f /usr/local/jetapps/etc/.mongod.auth ]] && [[ -x /usr/local/jetapps/usr/bin/mongosh ]]; 
 then
 echo "Checking the default IP Protocol set for JB5..."
 source /usr/local/jetapps/etc/.mongod.auth
@@ -254,8 +257,8 @@ echo "Checking for fraud..."
 
 if [[ "$(type -t mapfile)" == "builtin" ]]; 
 then
-mapfile -t FRAUD_BIN < <(find /usr/bin/ -maxdepth 1 | grep -Ei 'CSPupdate|update_jetbackup|\besp\b|esp_jetbackup|gblicensecp\b|gblicensecpcheck\b|GbCpanel|gbcpcronbackup|gblicensecp|gblicensecpcheck|licsys')
-mapfile -t FRAUD_CRONS < <(find /etc/cron.d/ -maxdepth 3 | grep -Ei 'licensecp|licensejp|gblicensecp|Rcjetbackup|RcLicenseJetBackup|RCcpanelv3|esp_jetbackup|\besp\b|gbcp\b|licsys')
+mapfile -t FRAUD_BIN < <(find /usr/bin/ -maxdepth 1 | grep -Ei 'CSPupdate|update_jetbackup|\besp\b|esp_jetbackup|gblicensecp\b|gblicensecpcheck\b|GbCpanel|gbcpcronbackup|gblicensecp|gblicensecpcheck|licsys|lmjetbackup|lmcjetback|lmjetback|gblicense')
+mapfile -t FRAUD_CRONS < <(find /etc/cron.d/ -maxdepth 3 | grep -Ei 'licensecp|licensejp|gblicensecp|Rcjetbackup|RcLicenseJetBackup|RCcpanelv3|esp_jetbackup|\besp\b|gbcp\b|licsys|lmcjetbackup5|rclicense|updategb|gblicensepk')
 fi
 
 
