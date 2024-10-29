@@ -27,7 +27,7 @@ LINEBREAK="********************************"
 set -o pipefail
 
 # Various commands can't run without root, such as journalctl. 
-[[ "$EUID" -ne 0 ]] && echo "[WARNING] !! This script should be run as root !!" 
+[[ "$EUID" -ne 0 ]] && { echo "[WARNING] This script should be run as root! Sleeping for 5 seconds..." ; sleep 5 ; }
 
 getIP() {
 
@@ -259,8 +259,8 @@ echo "Checking for fraud..."
 
 if [[ "$(type -t mapfile)" == "builtin" ]]; 
 then
-mapfile -t FRAUD_BIN < <(find /usr/bin/ -maxdepth 1 | grep -Ei 'CSPupdate|update_jetbackup|\besp\b|esp_jetbackup|gblicensecp\b|gblicensecpcheck\b|GbCpanel|gbcpcronbackup|gblicensecp|gblicensecpcheck|licsys|lmjetbackup|lmcjetback|lmjetback|rclicense|gblicense')
-mapfile -t FRAUD_CRONS < <(find /etc/cron.d/ -maxdepth 3 | grep -Ei 'licensecp|licensejp|gblicensecp|Rcjetbackup|RcLicenseJetBackup|RCcpanelv3|esp_jetbackup|\besp\b|gbcp\b|licsys|lmcjetbackup5|rclicense|updategb|gblicensepk')
+mapfile -t FRAUD_BIN < <(find /usr/bin/ -maxdepth 1 | grep -Ei 'CSPupdate|update_jetbackup|\besp\b|esp_jetbackup|gblicensecp\b|gblicensecpcheck\b|GbCpanel|gbcpcronbackup|gblicensecp|gblicensecpcheck|licsys|lmjetbackup|lmcjetback|lmjetback|rclicense|gblicense|lic_jetbackup|RcLicenseCP')
+mapfile -t FRAUD_CRONS < <(find /etc/cron.d/ -maxdepth 3 | grep -Ei 'licensecp|licensejp|gblicensecp|Rcjetbackup|RcLicenseJetBackup|RCcpanelv3|esp_jetbackup|\besp\b|gbcp\b|licsys|lmcjetbackup5|rclicense|updategb|gblicensepk|lic_jetbackup')
 fi
 
 
