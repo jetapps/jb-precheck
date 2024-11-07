@@ -41,7 +41,7 @@ source /usr/local/jetapps/etc/.mongod.auth
 FORCE_IP=$( /usr/local/jetapps/usr/bin/mongosh --quiet --port $PORT -u $USER -p $PASS --authenticationDatabase admin --eval 'print(db.config.find({_id:"license"}).next().force_ip);' jetbackup5 )
 fi
 # Default to IPv4 if not found or set to auto
-# Test if Force IP is an integer value
+# Test if Force IP is an integer value - if not int, force IPv4
 [[ "${FORCE_IP}" -eq "${FORCE_IP}" ]] || FORCE_IP=4
 [[ "${FORCE_IP}" -eq 0 ]] && FORCE_IP=4
 [[ -z ${FORCE_IP} ]] && FORCE_IP=4
@@ -103,7 +103,7 @@ LICFORMAT="Created:
 Type:
 Partner:
 Status:"
-STATUS="$(curl --get -m 30 -LSs https://billing.jetapps.com/verify.php --data-urlencode "ip=${MYIP}" | grep -i 'jetlicense_info' -A11 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g' | tr -s "[:space:]" )"
+STATUS="$(curl --get -m 30 -LSs https://billing.jetapps.com/verify.php --data-urlencode "ip=${MYIP}" | grep -i 'jetlicense_info' -A13 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g' | tr -s "[:space:]" )"
 
 [[ -n ${STATUS} ]] && paste <(echo "$LICFORMAT") <(echo "${STATUS}" | sed '/^[[:space:]]*$/d') --delimiters ' ' || echo -en "Could not get License Status. (Not licensed?) \nVerify URL: https://billing.jetapps.com/verify.php?ip=${MYIP}\n"
 echo "${LINEBREAK}"
