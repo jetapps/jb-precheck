@@ -78,6 +78,11 @@ fi
 
   echo "OS: $NAME $VERSION_ID"
 
+# Track kernel version
+[[ $(type -p uname) ]] && echo "Kernel Version: $(uname -srv)" || echo "[WARN] failed checking kernel version - uname not found"
+
+
+
 # Determine the package manager. 
 if [[ -x "$(command -v yum)" || -x "$(command -v dnf)" ]]; then
 RPM_PKG=1
@@ -236,11 +241,36 @@ esac
 
 }
 
+### Destinations Check
+
+DestinationTypesAvailable() {
+echo "${LINEBREAK}"
+echo "Checking JetBackup Destinations..."
+DESTTYPES=$(jetbackup5api -F listDestinations |  awk '/type_name:/ { name = ""; for(i=2; i<=NF; i++) name = (name == "" ? $i : name " " $i); print name}' | sort | uniq -c | 
+  awk '{
+    count = $1;
+    $1 = "";
+    name = substr($0, 2);
+    print "- " count " " name " Destination" (count > 1 ? "s" : "")
+  }')
+if [[ -z ${DESTTYPES} ]]; then
+echo "No Destinations Found."
+else
+echo "Counting Destination Types: "
+    echo "${DESTTYPES}"
+    echo "${LINEBREAK}"
+fi
+}
+
+
+
 getIP
 getOS
 getPanelDetails
 JetLicense_Test
 MinVersionCheck
+DestinationTypesAvailable
+
 
 ################################################################
 # Check cron 
