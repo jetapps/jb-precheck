@@ -251,7 +251,7 @@ DESTTYPES=$(jetbackup5api -F listDestinations |  awk '/type_name:/ { name = ""; 
     count = $1;
     $1 = "";
     name = substr($0, 2);
-    print "Has " count " " name " Destination" (count > 1 ? "s" : "")
+    print "- " count " " name " Destination" (count > 1 ? "s" : "")
   }')
 if [[ -z ${DESTTYPES} ]]; then
 echo "No Destinations Found."
