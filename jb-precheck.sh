@@ -165,11 +165,11 @@ echo "Determining whether JB5 is out of date..."
 [[ -n $JBVersion ]] && current_version=$(echo "${JBVersion}" | awk -F "|" '{print $1}' | awk -F " " '{print $NF}' | sed -n 1p)
 [[ -n $JBVersion ]] && updates_tier=$(echo "${JBVersion}" | awk -F "|" '{print $2}' | grep -oP "(?<=Current Tier )[A-Z]+" | tr '[:upper:]' '[:lower:]')
 
-# Only checking the first 3 digits of the version. 
+# Only checking the first 3 digits of the version. -- sort -V will sort the version numbers correctly, otherwise 5.3.9 is higher than 5.3.10+
 if [[ -n ${RPM_PKG} ]]; then
-  LATEST_STABLE=$(curl -m 30 -LSs http://repo.jetlicense.com/centOS/8/x86_64/${updates_tier}/RPMS/ | grep "jetbackup5-${panel}" | awk -F ' ' '{print $5}' | sed -n 's#href=".*">\(.*\)</a>.*#\1#p' | awk -F '-' '{print $3}' | sort | tail -1)
+  LATEST_STABLE=$(curl -m 30 -LSs http://repo.jetlicense.com/centOS/8/x86_64/${updates_tier}/RPMS/ | grep "jetbackup5-${panel}" | awk -F ' ' '{print $5}' | sed -n 's#href=".*">\(.*\)</a>.*#\1#p' | awk -F '-' '{print $3}' | sort -V | tail -1)
 elif [[ -n ${APT_PKG} ]]; then
-  LATEST_STABLE=$(curl -m 30 -LSs http://repo.jetlicense.com/debian/dists/bullseye/${updates_tier}/main/binary-amd64/ | grep "jetbackup5-${panel}" | awk -F ' ' '{print $5}' | sed -n 's#href=".*">\(.*\)</a>.*#\1#p' | awk -F '-' '{print $3}' | sort | tail -1)
+  LATEST_STABLE=$(curl -m 30 -LSs http://repo.jetlicense.com/debian/dists/bullseye/${updates_tier}/main/binary-amd64/ | grep "jetbackup5-${panel}" | awk -F ' ' '{print $5}' | sed -n 's#href=".*">\(.*\)</a>.*#\1#p' | awk -F '-' '{print $3}' | sort -V | tail -1)
 fi
 
 # If either variable is empty, skip the rest of the function.
@@ -181,10 +181,10 @@ if [[ $(version_parse $current_version) -ge $(version_parse $LATEST_STABLE) ]]; 
     echo -e "Version ${current_version} is up to date.\nOK"
     else
     WARNING_OLD_VERSION=1
-    echo "[WARN] JetBackup 5 version is outdated! Got ${current_version} Expected ${LATEST_STABLE} - Updates Tier: ${updates_tier}"
+    echo "[ERROR] JetBackup 5 is outdated! Got ${current_version} Expected ${LATEST_STABLE} for Updates Tier: ${updates_tier}"
 fi
 
-[[ $WARNING_OLD_VERSION == 1 ]] && echo -e "[WARN] The installed JetBackup 5 version is older than the latest ${updates_tier} release!\nUpdate with the command:\n jetapps -u jetbackup5-${panel}"
+[[ $WARNING_OLD_VERSION == 1 ]] && echo -e "[ERROR] JB5 is not up-to-date with the latest ${updates_tier} release for this Operating System!\nUpdate with the command:\n jetapps -u jetbackup5-${panel}\nOR check update logs for blockers:\n cd /usr/local/jetapps/var/log/jetapps/\n"
 
 echo "${LINEBREAK}"
 
