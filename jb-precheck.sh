@@ -246,15 +246,16 @@ esac
 DestinationTypesAvailable() {
 echo "${LINEBREAK}"
 echo "Checking JetBackup Destinations..."
-DESTTYPES=$(jetbackup5api -F listDestinations |  awk '/type_name:/ { name = ""; for(i=2; i<=NF; i++) name = (name == "" ? $i : name " " $i); print name}' | sort | uniq -c | 
+# Check if jetbackup5api exists and is executable before listing.
+[[ -x "$(command -v jetbackup5api)" ]] && DESTTYPES="$(timeout 10 jetbackup5api -F listDestinations |  awk '/type_name:/ { name = ""; for(i=2; i<=NF; i++) name = (name == "" ? $i : name " " $i); print name}' | sort | uniq -c | 
   awk '{
     count = $1;
     $1 = "";
     name = substr($0, 2);
     print "- " count " " name " Destination" (count > 1 ? "s" : "")
-  }')
+  }')"
 if [[ -z ${DESTTYPES} ]]; then
-echo "No Destinations Found."
+echo "Unable to list destinations or none configured."
 else
 echo "Counting Destination Types: "
     echo "${DESTTYPES}"
