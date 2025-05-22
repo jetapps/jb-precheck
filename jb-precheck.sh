@@ -199,7 +199,7 @@ JB4Version="$(jetbackup --version 2>/dev/null| sed "2 d")"
 
 # Checking the installed control panel
 PANEL=""
-[[ -x "$(command -v uapi)" || -x "$(command -v whmapi1)" ]] && PANEL="cPanel/WHM" && panel="cpanel"
+[[ -x "$(command -v uapi)" || -x "$(command -v whmapi1)" ]] && PANEL="cPanel & WHM" && panel="cpanel"
 [[ -x "$(command -v /usr/local/directadmin/directadmin)" ]] && PANEL="DirectAdmin" && panel="directadmin"
 [[ -x "$(command -v plesk)" ]] && PANEL="Plesk" && panel="plesk"
 [[ -x "$(command -v /usr/bin/nodeworx)" ]] && PANEL="InterWorx" && panel="interworx"
