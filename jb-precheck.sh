@@ -207,7 +207,7 @@ PANEL=""
 # Per-Panel Checks
 
 case ${PANEL} in 
-cPanel/WHM) echo "Panel: ${PANEL}"
+cPanel & WHM) echo "Panel: ${PANEL}"
 echo "Panel Version: $(cat /usr/local/cpanel/version 2>/dev/null)"
 LICENSESTATUS="$(curl -LSs https://verify.cpanel.net/index.cgi?ip=${MYIP} | grep 'cPanel/WHM</td' -A1 | sed -n 2p  | perl -pe 's/<[^>]*>//g')"
 echo "cPanel License Status: ${LICENSESTATUS}"
