@@ -327,7 +327,7 @@ JETAPPS_CRON_FILE="/etc/cron.d/jetapps"
 
 [[ ! -f ${JB4_CRON_FILE} && -n ${JB4Version} ]] && echo "${JB4_CRON_FILE} Cron file missing. This could cause issues running schedules in JetBackup 4.x."
 
-! [[ -f ${JETAPPS_CRON_FILE} ]] && echo "WARN: Auto Update Cron ${JETAPPS_CRON_FILE} not found. You may not receive updates."
+! [[ -f ${JETAPPS_CRON_FILE} ]] && echo "WARN: Auto Update Cron ${JETAPPS_CRON_FILE} not found. Auto updates will not run."
 
 JB_CRONS="/etc/cron.d"
 for file in "${JB_CRONS}"/*?et?ackup* ; do
@@ -380,9 +380,9 @@ do
 IFS=$'\n'
     for file in $(find $dir ! -user mongod ! -name "*log*")
     do
-echo "[WARNING] $file doesn't have expected owner. This may cause issues with MongoDB."
+echo "[ERROR] $file has incorrect OWNER. This will cause issues with MongoDB."
 MONGO_PERM_ISSUE=1
-echo "DONE."
+echo "[ERROR] MongoDB files/socket should be owned by mongod:mongod user."
     done
 done
 
@@ -393,19 +393,19 @@ IFS=$'\n'
     for perms in $(find $dir -maxdepth 0 -exec stat -c '%a' '{}' +)
     do
     if  [[ $dir == "/tmp" ]] && [[ $perms != *1777 ]]; then
-echo "WARN: $dir doesn't have the expected permissions. (Got $perms Expected 1777) - This may cause issues with MongoDB."
+echo "[ERROR]: $dir doesn't have the expected permissions. (Got $perms Expected 1777) - This will cause problems starting MongoDB."
 echo "Please see our Knowledgebase for more information: https://billing.jetapps.com/index.php?rp=/knowledgebase/5/Jetmongod-Install-Errors.html "
 MONGO_PERM_ISSUE=1
 fi
 if [[ $dir == "/dev/null" ]] && [[ $perms != *666 ]]; then
-echo "WARN: $dir doesn't have the expected permissions. (Got $perms Expected 666) - This may cause issues with MongoDB."
+echo "[ERROR] $dir doesn't have the expected permissions. (Got $perms Expected 666) - This will cause problems starting MongoDB."
 echo "Please see our Knowledgebase for more information: https://billing.jetapps.com/index.php?rp=/knowledgebase/5/Jetmongod-Install-Errors.html "
 MONGO_PERM_ISSUE=1
 fi
     done
 done
 unset IFS
-[[ -n $MONGO_PERM_ISSUE ]] && echo "jetmongod permissions issue(s) found." || echo "OK"
+[[ -n $MONGO_PERM_ISSUE ]] && echo "File ownership or permission issues found. Please investigate all of the above errors to resolve." || echo "OK"
 
 echo "${LINEBREAK}"
 
@@ -417,7 +417,7 @@ if [[ -x "$(command -v needs-restarting)" ]]; then
 echo "Checking if services need restarting..."
 NEEDRESTART=$(needs-restarting -s 2>/dev/null |grep -Ei 'jetbackup5d|jetmongod' | awk -F. '{print $1}')
 if [[ -n ${NEEDRESTART} ]]; then
-echo "[WARN] needs-restarting recommends restart of JB services. Verify no backups, restores, or downloads are running then try restarting the services listed below:"
+echo "[INFO] needs-restarting recommends restart of JB services. Verify no backups, restores, or downloads are running then try restarting the services listed below:"
 printf '%s\n' "${NEEDRESTART[@]}"
 else
 echo "OK"
@@ -445,4 +445,3 @@ echo -e "jetmongod service:\nactive"
 fi
 
 echo "${LINEBREAK}"
-
