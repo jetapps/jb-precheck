@@ -97,6 +97,8 @@ fi
 
 getTimeOffset() {
 
+# JB5 Logs in UTC, this function determines the difference between JB5's UTC timestamps and the server's local time. This makes it easier to correlate server logs with JB logs.
+
 echo "${LINEBREAK}"
 echo "Checking server time zone offset from UTC..."
 
@@ -162,7 +164,7 @@ Status:"
 STATUS="$(curl -H "User-Agent: jb-precheck/1.0" --get -m 30 -LSs https://billing.jetapps.com/verify.php --data-urlencode "ip=${MYIP}" | grep -i 'jetlicense_info' -A13 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g' | tr -s "[:space:]" )"
 
 [[ -n ${STATUS} ]] && paste <(echo "$LICFORMAT") <(echo "${STATUS}" | sed '/^[[:space:]]*$/d') --delimiters ' ' || echo -en "Could not get License Status. (Not licensed?) \nVerify URL: https://billing.jetapps.com/verify.php?ip=${MYIP}\n"
-echo "${LINEBREAK}"
+
 
 
 
@@ -175,7 +177,7 @@ echo "${LINEBREAK}"
 
 JetLicense_Test() {
 
-
+echo "${LINEBREAK}"
 echo "Attempting to connect to JetLicense..."
 echo "CMD: curl -m 30 -vsSL https://check.jetlicense.com"
 CONJL=$(curl -m 30 -sSL https://check.jetlicense.com -d "product_id=111111111111111111111111" |grep "No valid Product ID was found" 1>/dev/null 2>&1)
@@ -195,7 +197,7 @@ echo "WARNING: Unable to connect to JetApps Repo or received unexpected response
 elif [[ ${STATUSR} == 0 ]] ; then
 echo "OK"
 fi
-echo "${LINEBREAK}"
+
 
 }
 
@@ -206,7 +208,7 @@ echo "${LINEBREAK}"
 MinVersionCheck() {
 
 
-
+echo "${LINEBREAK}"
 echo "Determining whether JB5 is out of date..."
 
 
@@ -237,7 +239,6 @@ fi
 
 [[ $WARNING_OLD_VERSION == 1 ]] && echo -e "[ERROR] JB5 is not up-to-date with the latest ${updates_tier} release for this Operating System!\nUpdate with the command:\n jetapps -u jetbackup5-${panel}\nOR check update logs for blockers:\n cd /usr/local/jetapps/var/log/jetapps/\n"
 
-echo "${LINEBREAK}"
 
 }
 
