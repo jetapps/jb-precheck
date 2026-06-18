@@ -25,12 +25,29 @@ LINEBREAK="********************************"
 
 set -o pipefail
 
+# ANSI colors for category headers. Auto-disable when output isn't a terminal or NO_COLOR is set.
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+C_RESET=$'\e[0m'; C_BOLD=$'\e[1m'
+C_RED=$'\e[31m'; C_GREEN=$'\e[32m'; C_YELLOW=$'\e[33m'
+C_BLUE=$'\e[34m'; C_MAGENTA=$'\e[35m'; C_CYAN=$'\e[36m'
+else
+C_RESET=''; C_BOLD=''
+C_RED=''; C_GREEN=''; C_YELLOW=''
+C_BLUE=''; C_MAGENTA=''; C_CYAN=''
+fi
+
+# Print a colorized category header. Usage: category "<color>" "<label>"
+category() {
+echo "${C_BOLD}${1}[${2}]${C_RESET}"
+}
+
 # Various commands can't run without root, such as journalctl. 
 [[ "$EUID" -ne 0 ]] && { echo "[WARNING] This script should be run as root! Sleeping for 5 seconds..." ; sleep 5 ; }
 
 getIP() {
 
 echo "${LINEBREAK}"
+category "$C_BLUE" "Network"
 
 # Determine the IP address protocol to use from JB5
 if [[ -f /usr/local/jetapps/etc/.mongod.auth ]] && [[ -x /usr/local/jetapps/usr/bin/mongosh ]] && [[ "$EUID" -eq 0 ]]; 
@@ -66,7 +83,7 @@ fi
 getOS() {
 
   echo "${LINEBREAK}"
-  echo "Server Details:"
+  category "$C_CYAN" "Server Details"
 [[ ! -f /etc/os-release ]] && echo "Aborted: Can't find /etc/os-release file" 
 if [ -f /etc/os-release ]; then
 . /etc/os-release
@@ -100,6 +117,7 @@ getTimeOffset() {
 # JB5 Logs in UTC, this function determines the difference between JB5's UTC timestamps and the server's local time. This makes it easier to correlate server logs with JB logs.
 
 echo "${LINEBREAK}"
+category "$C_CYAN" "Timezone & Offset"
 echo "Checking server time zone offset from UTC..."
 
 if [[ ! $(type -p date) ]]; then
@@ -150,8 +168,6 @@ echo "${LINEBREAK}"
 
 validateLicense() {
 
-echo "${LINEBREAK}"
-
 # 58ac64be19a4643cdf582727
 # [[ -n ${MYIP} ]] && echo -e "JetBackup License Status (Activation Date, Type, Partner, Status): \n$(curl --get \-${FORCE_IP} -m 30 -LSs --data-urlencode "ip=${MYIP}" https://billing.jetapps.com/verify.php | grep -i 'jetlicense_info' -A11 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g')" | tr -s "[:space:]" || echo "[WARN] Skipped License Check - Failed to obtain IP address in outgoing IP step."
 
@@ -177,6 +193,7 @@ STATUS="$(curl -H "User-Agent: jb-precheck/1.0" --get -m 30 -LSs https://billing
 
 JetLicense_Test() {
 
+category "$C_BLUE" "JetLicense Connectivity"
 echo "Attempting to connect to JetLicense..."
 echo "CMD: curl -m 30 -vsSL https://check.jetlicense.com"
 CONJL=$(curl -m 30 -sSL https://check.jetlicense.com -d "product_id=111111111111111111111111" |grep "No valid Product ID was found" 1>/dev/null 2>&1)
@@ -208,6 +225,7 @@ MinVersionCheck() {
 
 
 echo "${LINEBREAK}"
+category "$C_YELLOW" "Update Status"
 echo "Determining whether JB5 is out of date..."
 
 
@@ -245,7 +263,10 @@ fi
 
 getPanelDetails() {
 
-JBVersion="$(jetbackup5 --version 2>/dev/null| sed "2 d")" 
+echo "${LINEBREAK}"
+category "$C_GREEN" "Panel & License"
+
+JBVersion="$(jetbackup5 --version 2>/dev/null| sed "2 d")"
 JB4Version="$(jetbackup --version 2>/dev/null| sed "2 d")"
 
 # Checking the installed control panel
@@ -301,6 +322,7 @@ esac
 
 DestinationTypesAvailable() {
 echo "${LINEBREAK}"
+category "$C_MAGENTA" "Destinations"
 echo "Checking JetBackup Destinations..."
 # Check if jetbackup5api exists and is executable before listing.
 [[ -x "$(command -v jetbackup5api)" ]] && DESTTYPES="$(timeout 10 jetbackup5api -F listDestinations |  awk '/type_name:/ { name = ""; for(i=2; i<=NF; i++) name = (name == "" ? $i : name " " $i); print name}' | sort | uniq -c | 
@@ -324,9 +346,9 @@ fi
 getIP
 getOS
 getPanelDetails
+MinVersionCheck
 getTimeOffset
 JetLicense_Test
-MinVersionCheck
 DestinationTypesAvailable
 
 
@@ -339,6 +361,7 @@ fraud_check() {
 
 
 echo "${LINEBREAK}"
+category "$C_RED" "Fraud Check"
 echo "Checking for fraud..."
 # Known binaries or crons that cause problems with JetBackup.
 # IMPORTANT: *** Any Binary or Cron listed below is **NOT** developed or distributed by JetApps, nor has any relation to our software. There should NEVER be a CA Bundle referencing jetlicense.com. Sometimes the repo.jetlicense.com may be referenced for debugging, only in /etc/hosts. ***
@@ -459,6 +482,7 @@ unset IFS
 fraud_check
 
 echo "${LINEBREAK}"
+category "$C_YELLOW" "Crons"
 echo "Checking Crons for issues..."
 JB4_CRON_FILE="/etc/cron.d/jetbackup"
 JETAPPS_CRON_FILE="/etc/cron.d/jetapps"
@@ -484,6 +508,7 @@ done
 ################################################################
 
 echo "${LINEBREAK}"
+category "$C_GREEN" "Binaries"
 echo "Checking for missing binaries..."
 # https://saasbase.dev/tools/regex-generator
 JB5_BIN_PATH="/usr/bin"
@@ -510,6 +535,7 @@ fi
 ################################################################
 
 echo "${LINEBREAK}"
+category "$C_GREEN" "Permissions & Ownership"
 echo "Checking MongoDB permissions/ownership for common problems"
 #TODO: Check /etc
 MONGO_DIRS=( /usr/local/jetapps/var/lib/mongod /usr/local/jetapps/var/log/mongod /usr/local/jetapps/var/run/mongod /tmp/mongodb-27217.sock )
@@ -549,6 +575,8 @@ unset IFS
 # Check journalctl for errors
 ################################################################
 
+echo "${LINEBREAK}"
+category "$C_CYAN" "Service Status"
 if [[ -x "$(command -v needs-restarting)" ]]; then
 echo "Checking if services need restarting..."
 NEEDRESTART=$(needs-restarting -s 2>/dev/null |grep -Ei 'jetbackup5d|jetmongod' | awk -F. '{print $1}')
@@ -583,7 +611,7 @@ source /usr/local/jetapps/etc/.mongod.auth
 echo "Checking jetmongod connection ability..."
 if /usr/local/jetapps/usr/bin/mongosh --quiet --port $PORT -u $USER -p $PASS --authenticationDatabase admin --eval "db.runCommand({ping:1})" jetbackup5 >/dev/null 2>&1; then
 echo "jetmongod connection: OK"
-echo "jetmongod appears to be functioning normally."
+echo "jetmongod functioning normally."
 else
 echo "[ERROR] jetmongod connection: FAILED"
 echo "[ERROR] jetmongod ping connection test failed. MongoDB may not be accepting connections. Please investigate and check /usr/local/jetapps/var/log/mongod/mongod.log for errors."
