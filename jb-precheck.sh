@@ -89,7 +89,56 @@ RPM_PKG=1
 elif [[ -x "$(command -v apt-get)" ]]; then
 APT_PKG=1
 else 
-	echo -en "[ERROR] Failed fetching package manager." 
+	echo -en "[ERROR] Failed fetching package manager."
+fi
+
+}
+
+
+getTimeOffset() {
+
+echo "${LINEBREAK}"
+echo "Checking server time zone offset from UTC..."
+
+if [[ ! $(type -p date) ]]; then
+echo "[WARN] failed checking time offset - date command not found"
+return
+fi
+
+# Numeric UTC offset in +/-HHMM form (e.g. +1000, -0500). Works on GNU date (RHEL/Debian).
+_TZ_OFFSET="$(date +%z 2>/dev/null)"
+_TZ_NAME="$(date +%Z 2>/dev/null)"
+
+echo "Server Time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+echo "UTC Time:    $(date -u '+%Y-%m-%d %H:%M:%S')"
+
+if [[ ! "${_TZ_OFFSET}" =~ ^[+-][0-9]{4}$ ]]; then
+echo "[WARN] Could not determine a valid UTC offset (got: '${_TZ_OFFSET:-none}')"
+return
+fi
+
+_TZ_SIGN="${_TZ_OFFSET:0:1}"
+# 10# forces base-10 so leading-zero values like 08/09 don't parse as invalid octal.
+_TZ_HOURS="$(( 10#${_TZ_OFFSET:1:2} ))"
+_TZ_MINS="$(( 10#${_TZ_OFFSET:3:2} ))"
+
+if [[ "${_TZ_HOURS}" -eq 0 && "${_TZ_MINS}" -eq 0 ]]; then
+echo "Server is at UTC time (no offset) (${_TZ_NAME} ${_TZ_OFFSET})."
+return
+fi
+
+# Build a human-readable description, including minutes only when non-zero.
+_TZ_DESC="${_TZ_HOURS} hour"
+[[ "${_TZ_HOURS}" -ne 1 ]] && _TZ_DESC="${_TZ_DESC}s"
+if [[ "${_TZ_MINS}" -ne 0 ]]; then
+_TZ_DESC="${_TZ_DESC} ${_TZ_MINS} minute"
+[[ "${_TZ_MINS}" -ne 1 ]] && _TZ_DESC="${_TZ_DESC}s"
+fi
+
+if [[ "${_TZ_SIGN}" == "-" ]]; then
+echo "Server is ${_TZ_DESC} behind UTC time (${_TZ_NAME} ${_TZ_OFFSET})."
+else
+echo "Server is ${_TZ_DESC} ahead of UTC time (${_TZ_NAME} ${_TZ_OFFSET})."
 fi
 
 }
@@ -167,9 +216,9 @@ echo "Determining whether JB5 is out of date..."
 
 # Only checking the first 3 digits of the version. -- sort -V will sort the version numbers correctly, otherwise 5.3.9 is higher than 5.3.10+
 if [[ -n ${RPM_PKG} ]]; then
-  LATEST_STABLE=$(curl -m 30 -LSs http://repo.jetlicense.com/centOS/8/x86_64/${updates_tier}/RPMS/ | grep "jetbackup5-${panel}" | awk -F ' ' '{print $5}' | sed -n 's#href=".*">\(.*\)</a>.*#\1#p' | awk -F '-' '{print $3}' | sort -V | tail -1)
+  LATEST_STABLE=$(curl -H "User-Agent: jb-precheck/1.0" -m 30 -LSs "http://repo.jetlicense.com/centOS/8/x86_64/${updates_tier}/RPMS/" | grep -oE 'jetbackup5-'${panel}'-[0-9][^"<]*' | awk -F '-' '{print $3}' | sort -V | tail -1)
 elif [[ -n ${APT_PKG} ]]; then
-  LATEST_STABLE=$(curl -m 30 -LSs http://repo.jetlicense.com/debian/dists/bullseye/${updates_tier}/main/binary-amd64/ | grep "jetbackup5-${panel}" | awk -F ' ' '{print $5}' | sed -n 's#href=".*">\(.*\)</a>.*#\1#p' | awk -F '-' '{print $3}' | sort -V | tail -1)
+  LATEST_STABLE=$(curl -H "User-Agent: jb-precheck/1.0" -m 30 -LSs "http://repo.jetlicense.com/debian/dists/bullseye/${updates_tier}/main/binary-amd64/" | grep -oE 'jetbackup5-'${panel}'-[0-9][^"<]*' | awk -F '-' '{print $3}' | sort -V | tail -1)
 fi
 
 # If either variable is empty, skip the rest of the function.
@@ -272,6 +321,7 @@ fi
 
 getIP
 getOS
+getTimeOffset
 getPanelDetails
 JetLicense_Test
 MinVersionCheck
