@@ -1,7 +1,7 @@
 #!/bin/bash
 # JetBackup Pre-Check Troubleshooting Script 
 
-# Copyright 2023, JetApps, LLC.
+# Copyright 2023-2026, JetApps, LLC.
 # All rights reserved.
 # Use of this script and JetBackup Software is governed by the End User License Agreement: 
 # https://www.jetapps.com/legal/jetbackup-eula/
@@ -19,7 +19,6 @@
 #
 # SCRIPT: JB-PRECHECK
 # PURPOSE: Runs various diagnostics to determine common JetBackup related errors. 
-# AUTHOR: Clark Poppa
 # CURRENT MAINTAINER: JetApps, LLC
 
 LINEBREAK="********************************"
@@ -81,7 +80,8 @@ fi
 # Track kernel version
 [[ $(type -p uname) ]] && echo "Kernel Version: $(uname -srv)" || echo "[WARN] failed checking kernel version - uname not found"
 
-
+# Return system cgroups version. hybrid means cgroupsv2 is used, but some processes can start in v1 mode. 
+[ -f /sys/fs/cgroup/cgroup.controllers ] && echo Cgroups Version: v2 || (mount | grep -q "type cgroup2" && echo "Cgroups Version: hybrid" || echo "Cgroups Version: v1")
 
 # Determine the package manager. 
 if [[ -x "$(command -v yum)" || -x "$(command -v dnf)" ]]; then
@@ -108,7 +108,7 @@ LICFORMAT="Created:
 Type:
 Partner:
 Status:"
-STATUS="$(curl --get -m 30 -LSs https://billing.jetapps.com/verify.php --data-urlencode "ip=${MYIP}" | grep -i 'jetlicense_info' -A13 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g' | tr -s "[:space:]" )"
+STATUS="$(curl -H "User-Agent: jb-precheck/1.0" --get -m 30 -LSs https://billing.jetapps.com/verify.php --data-urlencode "ip=${MYIP}" | grep -i 'jetlicense_info' -A13 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g' | tr -s "[:space:]" )"
 
 [[ -n ${STATUS} ]] && paste <(echo "$LICFORMAT") <(echo "${STATUS}" | sed '/^[[:space:]]*$/d') --delimiters ' ' || echo -en "Could not get License Status. (Not licensed?) \nVerify URL: https://billing.jetapps.com/verify.php?ip=${MYIP}\n"
 echo "${LINEBREAK}"
@@ -202,7 +202,8 @@ PANEL=""
 [[ -x "$(command -v uapi)" || -x "$(command -v whmapi1)" ]] && PANEL="cPanel & WHM" && panel="cpanel"
 [[ -x "$(command -v /usr/local/directadmin/directadmin)" ]] && PANEL="DirectAdmin" && panel="directadmin"
 [[ -x "$(command -v plesk)" ]] && PANEL="Plesk" && panel="plesk"
-[[ -x "$(command -v /usr/bin/nodeworx)" ]] && PANEL="InterWorx" && panel="interworx"
+[[ -x "$(command -v /usr/bin/nodeworx)" ]] && PANEL="InterWorx" && panel="interworx" # no longer supported
+[[ -x "$(command -v /usr/bin/webuzo)" ]] && PANEL="Webuzo" && panel="webuzo"
 
 # Per-Panel Checks
 
@@ -218,7 +219,6 @@ validateLicense
 DirectAdmin) echo "Panel: ${PANEL}"
 echo "Panel Version: $(/usr/local/directadmin/directadmin v | awk '{print $2, $3}')"
 [[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup 5 version information available."
-
 validateLicense
 ;;
 Plesk) echo "Panel: ${PANEL}"
@@ -228,6 +228,11 @@ validateLicense
 ;;
 InterWorx) echo "Panel: ${PANEL}"
 echo "Panel Version: $(grep 'rpm.release="' /usr/local/interworx/iworx.ini | cut -d "\"" -f 2)"
+[[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup 5 version information available."
+validateLicense
+;;
+Webuzo) echo "Panel: ${PANEL}"
+echo "Panel Version: $(/usr/bin/webuzo --version 2>/dev/null)"
 [[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup 5 version information available."
 validateLicense
 ;;
@@ -283,12 +288,34 @@ fraud_check() {
 
 echo "${LINEBREAK}"
 echo "Checking for fraud..."
-# Known binaries or crons that cause problems with JetBackup. 
-# IMPORTANT: *** Any Binary or Cron listed below is **NOT** developed or distributed by JetApps, nor has any relation to our software. ***
+# Known binaries or crons that cause problems with JetBackup.
+# IMPORTANT: *** Any Binary or Cron listed below is **NOT** developed or distributed by JetApps, nor has any relation to our software. There should NEVER be a CA Bundle referencing jetlicense.com. Sometimes the repo.jetlicense.com may be referenced for debugging, only in /etc/hosts. ***
 #FRAUD_BIN=( $(find /usr/bin/ -maxdepth 1 | grep -Ei 'regex') )
 #FRAUD_CRON=( $(find /etc/cron.d/ -maxdepth 3 | grep -Ei 'regex') )
 
-if [[ "$(type -t mapfile)" == "builtin" ]]; 
+# Various variables
+_JA_BASE="/usr/lo""cal/jet""apps"
+_JB_CORE="var/lib/jetbac""kup5/Core"
+_LD="Lic""ense"
+_LIC_DIR="${_JA_BASE}/${_JB_CORE}/${_LD}"
+_LIC_FILE="${_LIC_DIR}/${_LD}.inc"
+
+_ETC="/etc"
+_HOSTS="${_ETC}/hosts"
+# Candidate system CA bundle locations. RHEL/AlmaLinux use /etc/pki/...,
+# Debian/Ubuntu use /etc/ssl/certs/ca-certificates.crt.
+_CA_FILES=(
+"${_ETC}/pki/tls/certs/ca-bundle.crt"
+"${_ETC}/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"
+"${_ETC}/ssl/certs/ca-certificates.crt"
+)
+
+_JLD="jetlicense"".com"
+_SG="sg_load"
+_EV="eval"
+_ALLOWED_LIC_FILES=( "License.inc" "JetLicense.inc" "LicenseLocalKey.inc" )
+
+if [[ "$(type -t mapfile)" == "builtin" ]];
 then
 mapfile -t FRAUD_BIN < <(find /usr/bin/ -maxdepth 1 | grep -Ei 'CSPupdate|update_jetbackup|\besp\b|esp_jetbackup|gblicensecp\b|gblicensecpcheck\b|GbCpanel|gbcpcronbackup|gblicensecp|gblicensecpcheck|licsys|lmjetbackup|lmcjetback|lmjetback|rclicense|gblicense|lic_jetbackup|RcLicenseCP')
 mapfile -t FRAUD_CRONS < <(find /etc/cron.d/ -maxdepth 3 | grep -Ei 'licensecp|licensejp|gblicensecp|Rcjetbackup|RcLicenseJetBackup|RCcpanelv3|esp_jetbackup|\besp\b|gbcp\b|licsys|lmcjetbackup5|rclicense|updategb|gblicensepk|lic_jetbackup')
@@ -298,8 +325,8 @@ fi
 for BIN in "${FRAUD_BIN[@]}" ; do
 IFS=$'\n'
 if [[ -n "${BIN}" ]]; then
-FILE_MODIFY_DATE="$(date +%F -r ${BIN})"
-echo "[WARN] FOUND FRAUDULENT BINARY: ${BIN} - Last Modified Date: ${FILE_MODIFY_DATE}"
+FILE_MODIFY_DATE="$(date +%F -r "${BIN}" 2>/dev/null)"
+echo "[WARN] FOUND FRAUDULENT BINARY: ${BIN} - Last Modified Date: ${FILE_MODIFY_DATE:-unknown}"
 FRAUD_DETECTED=1
 fi
 done
@@ -307,14 +334,73 @@ done
 for CRON in "${FRAUD_CRONS[@]}" ; do
 IFS=$'\n'
 if [[ -n "${CRON}" ]]; then
-FILE_MODIFY_DATE="$(date +%F -r ${CRON})"
-echo "[WARN] FOUND FRAUDULENT CRON: ${CRON} - Last Modified Date: ${FILE_MODIFY_DATE}"
+FILE_MODIFY_DATE="$(date +%F -r "${CRON}" 2>/dev/null)"
+echo "[WARN] FOUND FRAUDULENT CRON: ${CRON} - Last Modified Date: ${FILE_MODIFY_DATE:-unknown}"
 FRAUD_DETECTED=1
 fi
 done
 
-[[ -n $FRAUD_DETECTED ]] && echo "ABORTED: EVIDENCE OF LICENSE CIRCUMVENTION. INELIGIBLE FOR SUPPORT" && exit 1 || echo "OK"
-#TODO: Check for License.inc 
+# Check for license service host overrides. Ignore commented-out entries.
+if [[ -f "${_HOSTS}" ]]; then
+_JLD_HOSTS_LINES="$(grep -aFi -- "${_JLD}" "${_HOSTS}" | grep -av '^[[:space:]]*#' | grep -v 'repo.jetlicense.com')"
+if [[ -n "${_JLD_HOSTS_LINES}" ]]; then
+_JLD_HOSTS_COUNT="$(printf '%s\n' "${_JLD_HOSTS_LINES}" | grep -c .)"
+echo "[WARN] FOUND LICENSE SERVICE HOST OVERRIDE: ${_JLD_HOSTS_COUNT:-1} match(es). POTENTIAL FRAUD."
+echo "Found /etc/hosts Lines: ${_JLD_HOSTS_LINES}"
+FRAUD_DETECTED=1
+fi
+fi
+
+# Check for license service entries inserted into the system CA bundle.
+for _CA_FILE in "${_CA_FILES[@]}"; do
+if [[ -f "${_CA_FILE}" ]] && grep -aFqi -- "${_JLD}" "${_CA_FILE}"; then
+_JLD_CA_LINES="$(grep -aFi -- "${_JLD}" "${_CA_FILE}")"
+_JLD_CA_COUNT="$(printf '%s\n' "${_JLD_CA_LINES}" | grep -c .)"
+echo "[WARN] FOUND LICENSE SERVICE ENTRY IN CA BUNDLE: ${_JLD_CA_COUNT:-1} match(es). EVIDENCE OF FRAUD."
+echo "Found CABUNDLE (${_CA_FILE}) Lines: ${_JLD_CA_LINES}"
+FRAUD_DETECTED=1
+fi
+done
+
+# Check for unexpected files or directories in the JetBackup license folder.
+if [[ -d "${_LIC_DIR}" ]]; then
+while IFS= read -r -d '' _LIC_ENTRY; do
+_LIC_BASENAME="$(basename "${_LIC_ENTRY}")"
+_LIC_ALLOWED=0
+for _ALLOWED_LIC_FILE in "${_ALLOWED_LIC_FILES[@]}"; do
+if [[ "${_LIC_BASENAME}" == "${_ALLOWED_LIC_FILE}" ]]; then
+_LIC_ALLOWED=1
+break
+fi
+done
+
+if [[ ${_LIC_ALLOWED} -eq 0 ]]; then
+FILE_MODIFY_DATE="$(date +%F -r "${_LIC_ENTRY}" 2>/dev/null)"
+echo "[WARN] FOUND UNEXPECTED FILE IN LICENSE DIRECTORY: ${_LIC_BASENAME} - Last Modified Date: ${FILE_MODIFY_DATE:-unknown}"
+FRAUD_DETECTED=1
+fi
+done < <(find "${_LIC_DIR}" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
+fi
+
+# License.inc should look like a SourceGuardian encoded file. Keep output short for encoded content.
+if [[ -f "${_LIC_FILE}" ]]; then
+_LIC_LINE_2="$(sed -n '2p' "${_LIC_FILE}" 2>/dev/null)"
+_LIC_LINE_2_PREFIX="$(printf '%s' "${_LIC_LINE_2}" | cut -c1-10)"
+
+if ! sed -n '1,10p' "${_LIC_FILE}" 2>/dev/null | grep -aFq -- "${_SG}"; then
+echo "[WARN] TAMPERED LICENSE FILE: SourceGuardian loader marker not found."
+echo "[WARN] Suspicious line 2 prefix: ${_LIC_LINE_2_PREFIX}"
+FRAUD_DETECTED=1
+fi
+
+if grep -aEiq "(^|[^[:alnum:]_])${_EV}[[:space:]]*[(]" "${_LIC_FILE}"; then
+echo "[WARN] TAMPERED LICENSE FILE: Found eval() usage."
+FRAUD_DETECTED=1
+fi
+fi
+
+unset IFS
+[[ -n $FRAUD_DETECTED ]] && echo "ABORTED: EVIDENCE OF LICENSE CIRCUMVENTION OR SUSPICIOUS LICENSE FILE MODIFICATION. INELIGIBLE FOR SUPPORT" && exit 1 || echo "OK"
 
 }
 
@@ -442,6 +528,17 @@ echo "Checking logs for errors. Displaying last 10 logged errors."
 grep -E '"s":"E"|Fatal assertion|WiredTiger error' /usr/local/jetapps/var/log/mongod/mongod.log | tail -10
 else 
 echo -e "jetmongod service:\nactive"
+if [[ -f /usr/local/jetapps/etc/.mongod.auth ]] && [[ -x /usr/local/jetapps/usr/bin/mongosh ]] && [[ "$EUID" -eq 0 ]]; then
+source /usr/local/jetapps/etc/.mongod.auth
+echo "Checking jetmongod connection ability..."
+if /usr/local/jetapps/usr/bin/mongosh --quiet --port $PORT -u $USER -p $PASS --authenticationDatabase admin --eval "db.runCommand({ping:1})" jetbackup5 >/dev/null 2>&1; then
+echo "jetmongod connection: OK"
+echo "jetmongod appears to be functioning normally."
+else
+echo "[ERROR] jetmongod connection: FAILED"
+echo "[ERROR] jetmongod ping connection test failed. MongoDB may not be accepting connections. Please investigate and check /usr/local/jetapps/var/log/mongod/mongod.log for errors."
+fi
+fi
 fi
 
 echo "${LINEBREAK}"
