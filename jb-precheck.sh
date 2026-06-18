@@ -1,7 +1,7 @@
 #!/bin/bash
 # JetBackup Pre-Check Troubleshooting Script 
 
-# Copyright 2023, JetApps, LLC.
+# Copyright 2023-2026, JetApps, LLC.
 # All rights reserved.
 # Use of this script and JetBackup Software is governed by the End User License Agreement: 
 # https://www.jetapps.com/legal/jetbackup-eula/
@@ -19,12 +19,27 @@
 #
 # SCRIPT: JB-PRECHECK
 # PURPOSE: Runs various diagnostics to determine common JetBackup related errors. 
-# AUTHOR: Clark Poppa
 # CURRENT MAINTAINER: JetApps, LLC
 
 LINEBREAK="********************************"
 
 set -o pipefail
+
+# ANSI colors for category headers. Auto-disable when output isn't a terminal or NO_COLOR is set.
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+C_RESET=$'\e[0m'; C_BOLD=$'\e[1m'
+C_RED=$'\e[31m'; C_GREEN=$'\e[32m'; C_YELLOW=$'\e[33m'
+C_BLUE=$'\e[34m'; C_MAGENTA=$'\e[35m'; C_CYAN=$'\e[36m'
+else
+C_RESET=''; C_BOLD=''
+C_RED=''; C_GREEN=''; C_YELLOW=''
+C_BLUE=''; C_MAGENTA=''; C_CYAN=''
+fi
+
+# Print a colorized category header. Usage: category "<color>" "<label>"
+category() {
+echo "${C_BOLD}${1}[${2}]${C_RESET}"
+}
 
 # Various commands can't run without root, such as journalctl. 
 [[ "$EUID" -ne 0 ]] && { echo "[WARNING] This script should be run as root! Sleeping for 5 seconds..." ; sleep 5 ; }
@@ -32,6 +47,7 @@ set -o pipefail
 getIP() {
 
 echo "${LINEBREAK}"
+category "$C_BLUE" "Network"
 
 # Determine the IP address protocol to use from JB5
 if [[ -f /usr/local/jetapps/etc/.mongod.auth ]] && [[ -x /usr/local/jetapps/usr/bin/mongosh ]] && [[ "$EUID" -eq 0 ]]; 
@@ -67,7 +83,7 @@ fi
 getOS() {
 
   echo "${LINEBREAK}"
-  echo "Server Details:"
+  category "$C_CYAN" "Server Details"
 [[ ! -f /etc/os-release ]] && echo "Aborted: Can't find /etc/os-release file" 
 if [ -f /etc/os-release ]; then
 . /etc/os-release
@@ -81,7 +97,8 @@ fi
 # Track kernel version
 [[ $(type -p uname) ]] && echo "Kernel Version: $(uname -srv)" || echo "[WARN] failed checking kernel version - uname not found"
 
-
+# Return system cgroups version. hybrid means cgroupsv2 is used, but some processes can start in v1 mode. 
+[ -f /sys/fs/cgroup/cgroup.controllers ] && echo Cgroups Version: v2 || (mount | grep -q "type cgroup2" && echo "Cgroups Version: hybrid" || echo "Cgroups Version: v1")
 
 # Determine the package manager. 
 if [[ -x "$(command -v yum)" || -x "$(command -v dnf)" ]]; then
@@ -89,15 +106,67 @@ RPM_PKG=1
 elif [[ -x "$(command -v apt-get)" ]]; then
 APT_PKG=1
 else 
-	echo -en "[ERROR] Failed fetching package manager." 
+	echo -en "[ERROR] Failed fetching package manager."
 fi
 
 }
 
 
-validateLicense() {
+getTimeOffset() {
+
+# JB5 Logs in UTC, this function determines the difference between JB5's UTC timestamps and the server's local time. This makes it easier to correlate server logs with JB logs.
 
 echo "${LINEBREAK}"
+category "$C_CYAN" "Timezone & Offset"
+echo "Checking server time zone offset from UTC..."
+
+if [[ ! $(type -p date) ]]; then
+echo "[WARN] failed checking time offset - date command not found"
+return
+fi
+
+# Numeric UTC offset in +/-HHMM form (e.g. +1000, -0500). Works on GNU date (RHEL/Debian).
+_TZ_OFFSET="$(date +%z 2>/dev/null)"
+_TZ_NAME="$(date +%Z 2>/dev/null)"
+
+echo "Server Time: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+echo "UTC Time:    $(date -u '+%Y-%m-%d %H:%M:%S')"
+
+if [[ ! "${_TZ_OFFSET}" =~ ^[+-][0-9]{4}$ ]]; then
+echo "[WARN] Could not determine a valid UTC offset (got: '${_TZ_OFFSET:-none}')"
+return
+fi
+
+_TZ_SIGN="${_TZ_OFFSET:0:1}"
+# 10# forces base-10 so leading-zero values like 08/09 don't parse as invalid octal.
+_TZ_HOURS="$(( 10#${_TZ_OFFSET:1:2} ))"
+_TZ_MINS="$(( 10#${_TZ_OFFSET:3:2} ))"
+
+if [[ "${_TZ_HOURS}" -eq 0 && "${_TZ_MINS}" -eq 0 ]]; then
+echo "Server is at UTC time (no offset) (${_TZ_NAME} ${_TZ_OFFSET})."
+return
+fi
+
+# Build a human-readable description, including minutes only when non-zero.
+_TZ_DESC="${_TZ_HOURS} hour"
+[[ "${_TZ_HOURS}" -ne 1 ]] && _TZ_DESC="${_TZ_DESC}s"
+if [[ "${_TZ_MINS}" -ne 0 ]]; then
+_TZ_DESC="${_TZ_DESC} ${_TZ_MINS} minute"
+[[ "${_TZ_MINS}" -ne 1 ]] && _TZ_DESC="${_TZ_DESC}s"
+fi
+
+if [[ "${_TZ_SIGN}" == "-" ]]; then
+echo "Server is ${_TZ_DESC} behind UTC time (${_TZ_NAME} ${_TZ_OFFSET})."
+else
+echo "Server is ${_TZ_DESC} ahead of UTC time (${_TZ_NAME} ${_TZ_OFFSET})."
+fi
+
+echo "${LINEBREAK}"
+
+}
+
+
+validateLicense() {
 
 # 58ac64be19a4643cdf582727
 # [[ -n ${MYIP} ]] && echo -e "JetBackup License Status (Activation Date, Type, Partner, Status): \n$(curl --get \-${FORCE_IP} -m 30 -LSs --data-urlencode "ip=${MYIP}" https://billing.jetapps.com/verify.php | grep -i 'jetlicense_info' -A11 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g')" | tr -s "[:space:]" || echo "[WARN] Skipped License Check - Failed to obtain IP address in outgoing IP step."
@@ -108,10 +177,10 @@ LICFORMAT="Created:
 Type:
 Partner:
 Status:"
-STATUS="$(curl --get -m 30 -LSs https://billing.jetapps.com/verify.php --data-urlencode "ip=${MYIP}" | grep -i 'jetlicense_info' -A13 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g' | tr -s "[:space:]" )"
+STATUS="$(curl -H "User-Agent: jb-precheck/1.0" --get -m 30 -LSs https://billing.jetapps.com/verify.php --data-urlencode "ip=${MYIP}" | grep -i 'jetlicense_info' -A13 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g' | tr -s "[:space:]" )"
 
 [[ -n ${STATUS} ]] && paste <(echo "$LICFORMAT") <(echo "${STATUS}" | sed '/^[[:space:]]*$/d') --delimiters ' ' || echo -en "Could not get License Status. (Not licensed?) \nVerify URL: https://billing.jetapps.com/verify.php?ip=${MYIP}\n"
-echo "${LINEBREAK}"
+
 
 
 
@@ -124,7 +193,7 @@ echo "${LINEBREAK}"
 
 JetLicense_Test() {
 
-
+category "$C_BLUE" "JetLicense Connectivity"
 echo "Attempting to connect to JetLicense..."
 echo "CMD: curl -m 30 -vsSL https://check.jetlicense.com"
 CONJL=$(curl -m 30 -sSL https://check.jetlicense.com -d "product_id=111111111111111111111111" |grep "No valid Product ID was found" 1>/dev/null 2>&1)
@@ -144,7 +213,7 @@ echo "WARNING: Unable to connect to JetApps Repo or received unexpected response
 elif [[ ${STATUSR} == 0 ]] ; then
 echo "OK"
 fi
-echo "${LINEBREAK}"
+
 
 }
 
@@ -155,7 +224,8 @@ echo "${LINEBREAK}"
 MinVersionCheck() {
 
 
-
+echo "${LINEBREAK}"
+category "$C_YELLOW" "Update Status"
 echo "Determining whether JB5 is out of date..."
 
 
@@ -167,9 +237,9 @@ echo "Determining whether JB5 is out of date..."
 
 # Only checking the first 3 digits of the version. -- sort -V will sort the version numbers correctly, otherwise 5.3.9 is higher than 5.3.10+
 if [[ -n ${RPM_PKG} ]]; then
-  LATEST_STABLE=$(curl -m 30 -LSs http://repo.jetlicense.com/centOS/8/x86_64/${updates_tier}/RPMS/ | grep "jetbackup5-${panel}" | awk -F ' ' '{print $5}' | sed -n 's#href=".*">\(.*\)</a>.*#\1#p' | awk -F '-' '{print $3}' | sort -V | tail -1)
+  LATEST_STABLE=$(curl -H "User-Agent: jb-precheck/1.0" -m 30 -LSs "http://repo.jetlicense.com/centOS/8/x86_64/${updates_tier}/RPMS/" | grep -oE 'jetbackup5-'${panel}'-[0-9][^"<]*' | awk -F '-' '{print $3}' | sort -V | tail -1)
 elif [[ -n ${APT_PKG} ]]; then
-  LATEST_STABLE=$(curl -m 30 -LSs http://repo.jetlicense.com/debian/dists/bullseye/${updates_tier}/main/binary-amd64/ | grep "jetbackup5-${panel}" | awk -F ' ' '{print $5}' | sed -n 's#href=".*">\(.*\)</a>.*#\1#p' | awk -F '-' '{print $3}' | sort -V | tail -1)
+  LATEST_STABLE=$(curl -H "User-Agent: jb-precheck/1.0" -m 30 -LSs "http://repo.jetlicense.com/debian/dists/bullseye/${updates_tier}/main/binary-amd64/" | grep -oE 'jetbackup5-'${panel}'-[0-9][^"<]*' | awk -F '-' '{print $3}' | sort -V | tail -1)
 fi
 
 # If either variable is empty, skip the rest of the function.
@@ -186,7 +256,6 @@ fi
 
 [[ $WARNING_OLD_VERSION == 1 ]] && echo -e "[ERROR] JB5 is not up-to-date with the latest ${updates_tier} release for this Operating System!\nUpdate with the command:\n jetapps -u jetbackup5-${panel}\nOR check update logs for blockers:\n cd /usr/local/jetapps/var/log/jetapps/\n"
 
-echo "${LINEBREAK}"
 
 }
 
@@ -194,7 +263,10 @@ echo "${LINEBREAK}"
 
 getPanelDetails() {
 
-JBVersion="$(jetbackup5 --version 2>/dev/null| sed "2 d")" 
+echo "${LINEBREAK}"
+category "$C_GREEN" "Panel & License"
+
+JBVersion="$(jetbackup5 --version 2>/dev/null| sed "2 d")"
 JB4Version="$(jetbackup --version 2>/dev/null| sed "2 d")"
 
 # Checking the installed control panel
@@ -202,7 +274,8 @@ PANEL=""
 [[ -x "$(command -v uapi)" || -x "$(command -v whmapi1)" ]] && PANEL="cPanel & WHM" && panel="cpanel"
 [[ -x "$(command -v /usr/local/directadmin/directadmin)" ]] && PANEL="DirectAdmin" && panel="directadmin"
 [[ -x "$(command -v plesk)" ]] && PANEL="Plesk" && panel="plesk"
-[[ -x "$(command -v /usr/bin/nodeworx)" ]] && PANEL="InterWorx" && panel="interworx"
+[[ -x "$(command -v /usr/bin/nodeworx)" ]] && PANEL="InterWorx" && panel="interworx" # no longer supported
+[[ -x "$(command -v /usr/bin/webuzo)" ]] && PANEL="Webuzo" && panel="webuzo"
 
 # Per-Panel Checks
 
@@ -218,7 +291,6 @@ validateLicense
 DirectAdmin) echo "Panel: ${PANEL}"
 echo "Panel Version: $(/usr/local/directadmin/directadmin v | awk '{print $2, $3}')"
 [[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup 5 version information available."
-
 validateLicense
 ;;
 Plesk) echo "Panel: ${PANEL}"
@@ -228,6 +300,11 @@ validateLicense
 ;;
 InterWorx) echo "Panel: ${PANEL}"
 echo "Panel Version: $(grep 'rpm.release="' /usr/local/interworx/iworx.ini | cut -d "\"" -f 2)"
+[[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup 5 version information available."
+validateLicense
+;;
+Webuzo) echo "Panel: ${PANEL}"
+echo "Panel Version: $(/usr/bin/webuzo --version 2>/dev/null)"
 [[ -n $JBVersion ]] && echo "Version: ${JBVersion}" || echo "No JetBackup 5 version information available."
 validateLicense
 ;;
@@ -245,6 +322,7 @@ esac
 
 DestinationTypesAvailable() {
 echo "${LINEBREAK}"
+category "$C_MAGENTA" "Destinations"
 echo "Checking JetBackup Destinations..."
 # Check if jetbackup5api exists and is executable before listing.
 [[ -x "$(command -v jetbackup5api)" ]] && DESTTYPES="$(timeout 10 jetbackup5api -F listDestinations |  awk '/type_name:/ { name = ""; for(i=2; i<=NF; i++) name = (name == "" ? $i : name " " $i); print name}' | sort | uniq -c | 
@@ -268,8 +346,9 @@ fi
 getIP
 getOS
 getPanelDetails
-JetLicense_Test
 MinVersionCheck
+getTimeOffset
+JetLicense_Test
 DestinationTypesAvailable
 
 
@@ -282,13 +361,36 @@ fraud_check() {
 
 
 echo "${LINEBREAK}"
+category "$C_RED" "Fraud Check"
 echo "Checking for fraud..."
-# Known binaries or crons that cause problems with JetBackup. 
-# IMPORTANT: *** Any Binary or Cron listed below is **NOT** developed or distributed by JetApps, nor has any relation to our software. ***
+# Known binaries or crons that cause problems with JetBackup.
+# IMPORTANT: *** Any Binary or Cron listed below is **NOT** developed or distributed by JetApps, nor has any relation to our software. There should NEVER be a CA Bundle referencing jetlicense.com. Sometimes the repo.jetlicense.com may be referenced for debugging, only in /etc/hosts. ***
 #FRAUD_BIN=( $(find /usr/bin/ -maxdepth 1 | grep -Ei 'regex') )
 #FRAUD_CRON=( $(find /etc/cron.d/ -maxdepth 3 | grep -Ei 'regex') )
 
-if [[ "$(type -t mapfile)" == "builtin" ]]; 
+# Various variables
+_JA_BASE="/usr/lo""cal/jet""apps"
+_JB_CORE="var/lib/jetbac""kup5/Core"
+_LD="Lic""ense"
+_LIC_DIR="${_JA_BASE}/${_JB_CORE}/${_LD}"
+_LIC_FILE="${_LIC_DIR}/${_LD}.inc"
+
+_ETC="/etc"
+_HOSTS="${_ETC}/hosts"
+# Candidate system CA bundle locations. RHEL/AlmaLinux use /etc/pki/...,
+# Debian/Ubuntu use /etc/ssl/certs/ca-certificates.crt.
+_CA_FILES=(
+"${_ETC}/pki/tls/certs/ca-bundle.crt"
+"${_ETC}/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"
+"${_ETC}/ssl/certs/ca-certificates.crt"
+)
+
+_JLD="jetlicense"".com"
+_SG="sg_load"
+_EV="eval"
+_ALLOWED_LIC_FILES=( "License.inc" "JetLicense.inc" "LicenseLocalKey.inc" )
+
+if [[ "$(type -t mapfile)" == "builtin" ]];
 then
 mapfile -t FRAUD_BIN < <(find /usr/bin/ -maxdepth 1 | grep -Ei 'CSPupdate|update_jetbackup|\besp\b|esp_jetbackup|gblicensecp\b|gblicensecpcheck\b|GbCpanel|gbcpcronbackup|gblicensecp|gblicensecpcheck|licsys|lmjetbackup|lmcjetback|lmjetback|rclicense|gblicense|lic_jetbackup|RcLicenseCP')
 mapfile -t FRAUD_CRONS < <(find /etc/cron.d/ -maxdepth 3 | grep -Ei 'licensecp|licensejp|gblicensecp|Rcjetbackup|RcLicenseJetBackup|RCcpanelv3|esp_jetbackup|\besp\b|gbcp\b|licsys|lmcjetbackup5|rclicense|updategb|gblicensepk|lic_jetbackup')
@@ -298,8 +400,8 @@ fi
 for BIN in "${FRAUD_BIN[@]}" ; do
 IFS=$'\n'
 if [[ -n "${BIN}" ]]; then
-FILE_MODIFY_DATE="$(date +%F -r ${BIN})"
-echo "[WARN] FOUND FRAUDULENT BINARY: ${BIN} - Last Modified Date: ${FILE_MODIFY_DATE}"
+FILE_MODIFY_DATE="$(date +%F -r "${BIN}" 2>/dev/null)"
+echo "[WARN] FOUND FRAUDULENT BINARY: ${BIN} - Last Modified Date: ${FILE_MODIFY_DATE:-unknown}"
 FRAUD_DETECTED=1
 fi
 done
@@ -307,20 +409,80 @@ done
 for CRON in "${FRAUD_CRONS[@]}" ; do
 IFS=$'\n'
 if [[ -n "${CRON}" ]]; then
-FILE_MODIFY_DATE="$(date +%F -r ${CRON})"
-echo "[WARN] FOUND FRAUDULENT CRON: ${CRON} - Last Modified Date: ${FILE_MODIFY_DATE}"
+FILE_MODIFY_DATE="$(date +%F -r "${CRON}" 2>/dev/null)"
+echo "[WARN] FOUND FRAUDULENT CRON: ${CRON} - Last Modified Date: ${FILE_MODIFY_DATE:-unknown}"
 FRAUD_DETECTED=1
 fi
 done
 
-[[ -n $FRAUD_DETECTED ]] && echo "ABORTED: EVIDENCE OF LICENSE CIRCUMVENTION. INELIGIBLE FOR SUPPORT" && exit 1 || echo "OK"
-#TODO: Check for License.inc 
+# Check for license service host overrides. Ignore commented-out entries.
+if [[ -f "${_HOSTS}" ]]; then
+_JLD_HOSTS_LINES="$(grep -aFi -- "${_JLD}" "${_HOSTS}" | grep -av '^[[:space:]]*#' | grep -v 'repo.jetlicense.com')"
+if [[ -n "${_JLD_HOSTS_LINES}" ]]; then
+_JLD_HOSTS_COUNT="$(printf '%s\n' "${_JLD_HOSTS_LINES}" | grep -c .)"
+echo "[WARN] FOUND LICENSE SERVICE HOST OVERRIDE: ${_JLD_HOSTS_COUNT:-1} match(es). POTENTIAL FRAUD."
+echo "Found /etc/hosts Lines: ${_JLD_HOSTS_LINES}"
+FRAUD_DETECTED=1
+fi
+fi
+
+# Check for license service entries inserted into the system CA bundle.
+for _CA_FILE in "${_CA_FILES[@]}"; do
+if [[ -f "${_CA_FILE}" ]] && grep -aFqi -- "${_JLD}" "${_CA_FILE}"; then
+_JLD_CA_LINES="$(grep -aFi -- "${_JLD}" "${_CA_FILE}")"
+_JLD_CA_COUNT="$(printf '%s\n' "${_JLD_CA_LINES}" | grep -c .)"
+echo "[WARN] FOUND LICENSE SERVICE ENTRY IN CA BUNDLE: ${_JLD_CA_COUNT:-1} match(es). EVIDENCE OF FRAUD."
+echo "Found CABUNDLE (${_CA_FILE}) Lines: ${_JLD_CA_LINES}"
+FRAUD_DETECTED=1
+fi
+done
+
+# Check for unexpected files or directories in the JetBackup license folder.
+if [[ -d "${_LIC_DIR}" ]]; then
+while IFS= read -r -d '' _LIC_ENTRY; do
+_LIC_BASENAME="$(basename "${_LIC_ENTRY}")"
+_LIC_ALLOWED=0
+for _ALLOWED_LIC_FILE in "${_ALLOWED_LIC_FILES[@]}"; do
+if [[ "${_LIC_BASENAME}" == "${_ALLOWED_LIC_FILE}" ]]; then
+_LIC_ALLOWED=1
+break
+fi
+done
+
+if [[ ${_LIC_ALLOWED} -eq 0 ]]; then
+FILE_MODIFY_DATE="$(date +%F -r "${_LIC_ENTRY}" 2>/dev/null)"
+echo "[WARN] FOUND UNEXPECTED FILE IN LICENSE DIRECTORY: ${_LIC_BASENAME} - Last Modified Date: ${FILE_MODIFY_DATE:-unknown}"
+FRAUD_DETECTED=1
+fi
+done < <(find "${_LIC_DIR}" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
+fi
+
+# License.inc should look like a SourceGuardian encoded file. Keep output short for encoded content.
+if [[ -f "${_LIC_FILE}" ]]; then
+_LIC_LINE_2="$(sed -n '2p' "${_LIC_FILE}" 2>/dev/null)"
+_LIC_LINE_2_PREFIX="$(printf '%s' "${_LIC_LINE_2}" | cut -c1-10)"
+
+if ! sed -n '1,10p' "${_LIC_FILE}" 2>/dev/null | grep -aFq -- "${_SG}"; then
+echo "[WARN] TAMPERED LICENSE FILE: SourceGuardian loader marker not found."
+echo "[WARN] Suspicious line 2 prefix: ${_LIC_LINE_2_PREFIX}"
+FRAUD_DETECTED=1
+fi
+
+if grep -aEiq "(^|[^[:alnum:]_])${_EV}[[:space:]]*[(]" "${_LIC_FILE}"; then
+echo "[WARN] TAMPERED LICENSE FILE: Found eval() usage."
+FRAUD_DETECTED=1
+fi
+fi
+
+unset IFS
+[[ -n $FRAUD_DETECTED ]] && echo "ABORTED: EVIDENCE OF LICENSE CIRCUMVENTION OR SUSPICIOUS LICENSE FILE MODIFICATION. INELIGIBLE FOR SUPPORT" && exit 1 || echo "OK"
 
 }
 
 fraud_check
 
 echo "${LINEBREAK}"
+category "$C_YELLOW" "Crons"
 echo "Checking Crons for issues..."
 JB4_CRON_FILE="/etc/cron.d/jetbackup"
 JETAPPS_CRON_FILE="/etc/cron.d/jetapps"
@@ -346,6 +508,7 @@ done
 ################################################################
 
 echo "${LINEBREAK}"
+category "$C_GREEN" "Binaries"
 echo "Checking for missing binaries..."
 # https://saasbase.dev/tools/regex-generator
 JB5_BIN_PATH="/usr/bin"
@@ -372,6 +535,7 @@ fi
 ################################################################
 
 echo "${LINEBREAK}"
+category "$C_GREEN" "Permissions & Ownership"
 echo "Checking MongoDB permissions/ownership for common problems"
 #TODO: Check /etc
 MONGO_DIRS=( /usr/local/jetapps/var/lib/mongod /usr/local/jetapps/var/log/mongod /usr/local/jetapps/var/run/mongod /tmp/mongodb-27217.sock )
@@ -407,12 +571,12 @@ done
 unset IFS
 [[ -n $MONGO_PERM_ISSUE ]] && echo "File ownership or permission issues found. Please investigate all of the above errors to resolve." || echo "OK"
 
-echo "${LINEBREAK}"
-
 ################################################################
 # Check journalctl for errors
 ################################################################
 
+echo "${LINEBREAK}"
+category "$C_CYAN" "Service Status"
 if [[ -x "$(command -v needs-restarting)" ]]; then
 echo "Checking if services need restarting..."
 NEEDRESTART=$(needs-restarting -s 2>/dev/null |grep -Ei 'jetbackup5d|jetmongod' | awk -F. '{print $1}')
@@ -442,6 +606,17 @@ echo "Checking logs for errors. Displaying last 10 logged errors."
 grep -E '"s":"E"|Fatal assertion|WiredTiger error' /usr/local/jetapps/var/log/mongod/mongod.log | tail -10
 else 
 echo -e "jetmongod service:\nactive"
+if [[ -f /usr/local/jetapps/etc/.mongod.auth ]] && [[ -x /usr/local/jetapps/usr/bin/mongosh ]] && [[ "$EUID" -eq 0 ]]; then
+source /usr/local/jetapps/etc/.mongod.auth
+echo "Checking jetmongod connection ability..."
+if /usr/local/jetapps/usr/bin/mongosh --quiet --port $PORT -u $USER -p $PASS --authenticationDatabase admin --eval "db.runCommand({ping:1})" jetbackup5 >/dev/null 2>&1; then
+echo "jetmongod connection: OK"
+echo "jetmongod functioning normally."
+else
+echo "[ERROR] jetmongod connection: FAILED"
+echo "[ERROR] jetmongod ping connection test failed. MongoDB may not be accepting connections. Please investigate and check /usr/local/jetapps/var/log/mongod/mongod.log for errors."
+fi
+fi
 fi
 
 echo "${LINEBREAK}"
