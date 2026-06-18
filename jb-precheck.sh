@@ -321,8 +321,8 @@ fi
 
 getIP
 getOS
-getTimeOffset
 getPanelDetails
+getTimeOffset
 JetLicense_Test
 MinVersionCheck
 DestinationTypesAvailable
