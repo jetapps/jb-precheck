@@ -141,6 +141,8 @@ else
 echo "Server is ${_TZ_DESC} ahead of UTC time (${_TZ_NAME} ${_TZ_OFFSET})."
 fi
 
+echo "${LINEBREAK}"
+
 }
 
 
