@@ -177,7 +177,6 @@ STATUS="$(curl -H "User-Agent: jb-precheck/1.0" --get -m 30 -LSs https://billing
 
 JetLicense_Test() {
 
-echo "${LINEBREAK}"
 echo "Attempting to connect to JetLicense..."
 echo "CMD: curl -m 30 -vsSL https://check.jetlicense.com"
 CONJL=$(curl -m 30 -sSL https://check.jetlicense.com -d "product_id=111111111111111111111111" |grep "No valid Product ID was found" 1>/dev/null 2>&1)
@@ -545,8 +544,6 @@ fi
 done
 unset IFS
 [[ -n $MONGO_PERM_ISSUE ]] && echo "File ownership or permission issues found. Please investigate all of the above errors to resolve." || echo "OK"
-
-echo "${LINEBREAK}"
 
 ################################################################
 # Check journalctl for errors
