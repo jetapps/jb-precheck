@@ -41,10 +41,25 @@ category() {
 echo "${C_BOLD}${1}[${2}]${C_RESET}"
 }
 
+# Print a colorized section verdict. Usage: status SUCCESS|WARNING|FAILED "<message>"
+# SUCCESS = check passed, WARNING = requires further checking, FAILED = problem found.
+status() {
+local _tag="$1"; shift
+local _color="$C_CYAN"
+case "$_tag" in
+SUCCESS) _color="$C_CYAN" ;;
+WARNING) _color="$C_YELLOW" ;;
+FAILED)  _color="$C_RED" ;;
+esac
+echo "${C_BOLD}${_color}[${_tag}]${C_RESET} $*"
+}
+
 # Various commands can't run without root, such as journalctl. 
 [[ "$EUID" -ne 0 ]] && { echo "[WARNING] This script should be run as root! Sleeping for 5 seconds..." ; sleep 5 ; }
 
 getIP() {
+
+IP_CHECK_URL="https://ifconfig.me"
 
 echo "${LINEBREAK}"
 category "$C_BLUE" "Network"
@@ -63,18 +78,30 @@ fi
 [[ -z ${FORCE_IP} ]] && FORCE_IP=4
 
 echo "Attempting to find outgoing public IP address..."
-MYIP="$(curl \-${FORCE_IP} -sS ifconfig.me)"
+
+MYIP="$(curl -m 10 \-${FORCE_IP} -sS $IP_CHECK_URL)"
 STATUS1="$?"
 # If the above fails and force IP was 6, try with 4. But if it fails and Force IP was 4, try with 6. 
 if [[ -z ${MYIP} ]] && [[ ${STATUS1} != 0 && ${FORCE_IP} -eq 6 ]]; then
-MYIP="$(curl -4 -sS ifconfig.me)"
+MYIP="$(curl -m 10 -4 -sS $IP_CHECK_URL)"
 elif [[ -z ${MYIP} ]] && [[ ${STATUS1} != 0 && ${FORCE_IP} -eq 4 ]]; then
-MYIP="$(curl -6 -sS ifconfig.me)"
+MYIP="$(curl -m 10 -6 -sS $IP_CHECK_URL)"
 fi
 
-[[ -z ${MYIP} ]] && echo "ERROR - Could not find a valid IPv4 or IPv6 address. CURL may have been blocked by Firewall or CSF."
-[[ -n ${MYIP} ]] && echo "OUTGOING SERVER IP: $MYIP"
+# Make sure MYIP actually looks like an IPv4 or IPv6 address. Some endpoints return
+# HTML or error text (e.g. "error code: 1001") with an HTTP 200, which curl treats as success.
+if [[ -n ${MYIP} ]] && ! [[ ${MYIP} =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ || ${MYIP} =~ ^[0-9a-fA-F:]+:[0-9a-fA-F:]*$ ]]; then
+# Return only the first 2 lines if HTTP 200 is returned with a HTML page or 500 Page.
+_MYIP_SNIP="$(printf '%s\n' "${MYIP}" | head -n 2)"
+status WARNING "Outgoing IP lookup returned unexpected output:"
+printf '%s\n' "${_MYIP_SNIP}"
+MYIP=""
+fi
 
+# [[ -z ${MYIP} ]] && echo "[FAILED] - Could not find a valid IPv4 or IPv6 address. CURL may have been blocked by Firewall or CSF."
+# [[ -n ${MYIP} ]] && echo "OUTGOING SERVER IP: $MYIP"
+
+[[ -n ${MYIP} ]] && status SUCCESS "Outgoing IP: ${MYIP}" || status FAILED "Could not find a valid IPv4 or IPv6 address. CURL may have been blocked by Firewall or CSF."
 
 }
 
@@ -106,7 +133,16 @@ RPM_PKG=1
 elif [[ -x "$(command -v apt-get)" ]]; then
 APT_PKG=1
 else 
-	echo -en "[ERROR] Failed fetching package manager."
+	echo -en "[ERROR] Failed fetching package manager.\n"
+_PKG_FAIL=1
+fi
+
+if [[ -n ${_PKG_FAIL} ]]; then
+status FAILED "Could not detect a supported package manager."
+elif [[ ! -f /etc/os-release ]]; then
+status WARNING "OS release file unavailable. "
+else
+status SUCCESS ""
 fi
 
 }
@@ -122,6 +158,7 @@ echo "Checking server time zone offset from UTC..."
 
 if [[ ! $(type -p date) ]]; then
 echo "[WARN] failed checking time offset - date command not found"
+status WARNING "Could not check time offset; 'date' not found."
 return
 fi
 
@@ -134,6 +171,7 @@ echo "UTC Time:    $(date -u '+%Y-%m-%d %H:%M:%S')"
 
 if [[ ! "${_TZ_OFFSET}" =~ ^[+-][0-9]{4}$ ]]; then
 echo "[WARN] Could not determine a valid UTC offset (got: '${_TZ_OFFSET:-none}')"
+status WARNING "Could not determine a valid UTC offset."
 return
 fi
 
@@ -144,6 +182,7 @@ _TZ_MINS="$(( 10#${_TZ_OFFSET:3:2} ))"
 
 if [[ "${_TZ_HOURS}" -eq 0 && "${_TZ_MINS}" -eq 0 ]]; then
 echo "Server is at UTC time (no offset) (${_TZ_NAME} ${_TZ_OFFSET})."
+status SUCCESS "Server is at UTC (no offset)."
 return
 fi
 
@@ -161,6 +200,7 @@ else
 echo "Server is ${_TZ_DESC} ahead of UTC time (${_TZ_NAME} ${_TZ_OFFSET})."
 fi
 
+status SUCCESS "Server timezone (${_TZ_NAME} ${_TZ_OFFSET})."
 echo "${LINEBREAK}"
 
 }
@@ -177,9 +217,11 @@ LICFORMAT="Created:
 Type:
 Partner:
 Status:"
-STATUS="$(curl -H "User-Agent: jb-precheck/1.0" --get -m 30 -LSs https://billing.jetapps.com/verify.php --data-urlencode "ip=${MYIP}" | grep -i 'jetlicense_info' -A13 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g' | tr -s "[:space:]" )"
+STATUS="$(curl -H "User-Agent: jb-precheck/1.0" --get -m 30 -LSs https://billing.jetbackup.com/verify.php --data-urlencode "ip=${MYIP}" | grep -i 'jetlicense_info' -A13 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g' | tr -s "[:space:]" )"
 
 [[ -n ${STATUS} ]] && paste <(echo "$LICFORMAT") <(echo "${STATUS}" | sed '/^[[:space:]]*$/d') --delimiters ' ' || echo -en "Could not get License Status. (Not licensed?) \nVerify URL: https://billing.jetapps.com/verify.php?ip=${MYIP}\n"
+
+[[ -n ${STATUS} ]] && status SUCCESS "License Status fetched sucessfully." || status WARNING "Could not retrieve license status (not licensed?); verify manually."
 
 
 
@@ -199,7 +241,7 @@ echo "CMD: curl -m 30 -vsSL https://check.jetlicense.com"
 CONJL=$(curl -m 30 -sSL https://check.jetlicense.com -d "product_id=111111111111111111111111" |grep "No valid Product ID was found" 1>/dev/null 2>&1)
 STATUS=$?
 if [[ ${STATUS} -gt 0 ]] ; then
-echo "WARNING: Unable to connect to JetLicense or received unexpected response. Escalate to L2!"
+echo "Unable to connect to JetLicense or received unexpected response. Escalate to L2!"
 elif [[ ${STATUS} == 0 ]] ; then
 echo "OK"
 fi
@@ -209,9 +251,15 @@ echo "CMD: curl -m 30 -vsSL https://repo.jetlicense.com"
 CONREPO=$(curl -m 30 -sSL https://repo.jetlicense.com |grep -q "LiteSpeed Web Server at repo.jetlicense.com Port 443" 1>/dev/null 2>&1)
 STATUSR=$?
 if [[ ${STATUSR} != 0 ]] ; then
-echo "WARNING: Unable to connect to JetApps Repo or received unexpected response. Check with L2!"
+echo "Unable to connect to JetApps Repo or received unexpected response. Check with L2!"
 elif [[ ${STATUSR} == 0 ]] ; then
 echo "OK"
+fi
+
+if [[ ${STATUS} == 0 && ${STATUSR} == 0 ]]; then
+status SUCCESS "Connected to JetLicense and JetApps repo."
+else
+status FAILED "Connectivity issue to JetLicense and/or JetApps repo; escalate to L2."
 fi
 
 
@@ -243,18 +291,20 @@ elif [[ -n ${APT_PKG} ]]; then
 fi
 
 # If either variable is empty, skip the rest of the function.
-[[ -z "${current_version}" || -z ${LATEST_STABLE} ]] && echo "Failed to determine versions for compare." && return 1
+[[ -z "${current_version}" || -z ${LATEST_STABLE} ]] && status FAILED "Could not determine versions to compare; verify manually." && return 1
 
 # Convert the version number to remove periods. Required for the proceeding if statement.
 function version_parse { echo "$@" | awk -F. '{ printf("%d%03d%03d%03d\n", $1,$2,$3,$4); }'; }
 if [[ $(version_parse $current_version) -ge $(version_parse $LATEST_STABLE) ]]; then
-    echo -e "Version ${current_version} is up to date.\nOK"
+    : # Version is up to date, return success later.
     else
     WARNING_OLD_VERSION=1
     echo "[ERROR] JetBackup 5 is outdated! Got ${current_version} Expected ${LATEST_STABLE} for Updates Tier: ${updates_tier}"
 fi
 
-[[ $WARNING_OLD_VERSION == 1 ]] && echo -e "[ERROR] JB5 is not up-to-date with the latest ${updates_tier} release for this Operating System!\nUpdate with the command:\n jetapps -u jetbackup5-${panel}\nOR check update logs for blockers:\n cd /usr/local/jetapps/var/log/jetapps/\n"
+[[ $WARNING_OLD_VERSION == 1 ]] && status WARNING "[ERROR] JB5 is not up-to-date with the latest ${updates_tier} release for this Operating System!\nUpdate with the command:\n jetapps -u jetbackup5-${panel}\nOR check update logs for blockers:\n cd /usr/local/jetapps/var/log/jetapps/\n"
+
+[[ $WARNING_OLD_VERSION == 1 ]] && status WARNING "JB5 is outdated; update to ${LATEST_STABLE}." || status SUCCESS "JB5 ${current_version} is up to date."
 
 
 }
@@ -334,11 +384,14 @@ echo "Checking JetBackup Destinations..."
   }')"
 if [[ -z ${DESTTYPES} ]]; then
 echo "Unable to list destinations or none configured."
+status FAILED "No destinations found."
 else
 echo "Counting Destination Types: "
     echo "${DESTTYPES}"
-    echo "${LINEBREAK}"
+_DEST_TOTAL="$(printf '%s\n' "${DESTTYPES}" | awk '{s+=$2} END{print s+0}')"
+status SUCCESS "${_DEST_TOTAL} Total Destinations"
 fi
+echo "${LINEBREAK}"
 }
 
 
@@ -475,7 +528,12 @@ fi
 fi
 
 unset IFS
-[[ -n $FRAUD_DETECTED ]] && echo "ABORTED: EVIDENCE OF LICENSE CIRCUMVENTION OR SUSPICIOUS LICENSE FILE MODIFICATION. INELIGIBLE FOR SUPPORT" && exit 1 || echo "OK"
+if [[ -n $FRAUD_DETECTED ]]; then
+status FAILED "EVIDENCE OF LICENSE CIRCUMVENTION OR SUSPICIOUS LICENSE FILE MODIFICATION. INELIGIBLE FOR SUPPORT"
+exit 1
+else
+status SUCCESS "Looks good from here."
+fi
 
 }
 
@@ -487,9 +545,9 @@ echo "Checking Crons for issues..."
 JB4_CRON_FILE="/etc/cron.d/jetbackup"
 JETAPPS_CRON_FILE="/etc/cron.d/jetapps"
 
-[[ ! -f ${JB4_CRON_FILE} && -n ${JB4Version} ]] && echo "${JB4_CRON_FILE} Cron file missing. This could cause issues running schedules in JetBackup 4.x."
+[[ ! -f ${JB4_CRON_FILE} && -n ${JB4Version} ]] && { echo "${JB4_CRON_FILE} Cron file missing. This could cause issues running schedules in JetBackup 4.x."; _CRON_WARN=1; }
 
-! [[ -f ${JETAPPS_CRON_FILE} ]] && echo "WARN: Auto Update Cron ${JETAPPS_CRON_FILE} not found. Auto updates will not run."
+! [[ -f ${JETAPPS_CRON_FILE} ]] && { echo "WARN: Auto Update Cron ${JETAPPS_CRON_FILE} not found. Auto updates will not run."; _CRON_WARN=1; }
 
 JB_CRONS="/etc/cron.d"
 for file in "${JB_CRONS}"/*?et?ackup* ; do
@@ -501,7 +559,8 @@ fi
 done
 
 
-[[ -n "$ADDL_CRON" ]] && echo "WARN: Custom crons can effect JB function. Verify there are no conflicts." || echo "Crons OK"
+[[ -n "$ADDL_CRON" ]] && echo "WARN: Custom crons can effect JB function. Verify there are no conflicts."
+[[ -n "$ADDL_CRON" || -n "$_CRON_WARN" ]] && status WARNING "Cron issues found; verify scheduling/auto-update setup." || status SUCCESS "OK"
 
 ################################################################
 # Check binaries 
@@ -517,6 +576,7 @@ JB5_BINFILES=(
     "${JB5_BIN_PATH}/jetbackup5"
     "${JB5_BIN_PATH}/jetbackup5api"
     "${JB5_BIN_PATH}/jetmongo"
+    "${JB5_BIN_PATH}/jetbackup5_reset_mfa" # v5.4.0+
 )
 
 JB5_regex=( $(find /usr/bin/ -maxdepth 1 | grep -E 'jet(apps|api|backup5api|backup5|cli|mongo)'))
@@ -526,8 +586,10 @@ COUNT_B=$(echo ${JB5_BINFILES[@]} ${JB5_regex[@]} | tr ' ' '\n' | sort | uniq -u
 if [[ ${COUNT_B} > 0 ]]; then
 echo "Found ${COUNT_B} unexpected or missing binaries:"
 echo ${JB5_BINFILES[@]} ${JB5_regex[@]} | tr ' ' '\n' | sort | uniq -u
+status WARNING "${COUNT_B} unexpected or missing binaries. Check manually."
 elif [[ ${COUNT_B} == 0 ]]; then
 echo "OK"
+status SUCCESS "All expected binaries present."
 fi
 
 ################################################################
@@ -569,7 +631,7 @@ fi
     done
 done
 unset IFS
-[[ -n $MONGO_PERM_ISSUE ]] && echo "File ownership or permission issues found. Please investigate all of the above errors to resolve." || echo "OK"
+[[ -n $MONGO_PERM_ISSUE ]] && status FAILED "MongoDB file ownership/permission issues found. Please investigate all of the above errors to resolve." || status SUCCESS "MongoDB permissions/ownership OK."
 
 ################################################################
 # Check journalctl for errors
@@ -583,8 +645,9 @@ NEEDRESTART=$(needs-restarting -s 2>/dev/null |grep -Ei 'jetbackup5d|jetmongod' 
 if [[ -n ${NEEDRESTART} ]]; then
 echo "[INFO] needs-restarting recommends restart of JB services. Verify no backups, restores, or downloads are running then try restarting the services listed below:"
 printf '%s\n' "${NEEDRESTART[@]}"
+_SVC_WARN=1
 else
-echo "OK"
+echo "No service restart needed."
 fi
 fi
 
@@ -592,6 +655,7 @@ echo "${LINEBREAK}"
 
 if [[ $(systemctl -q is-active jetbackup5d > /dev/null 2>&1 ; echo $?) != 0 ]]; then 
 echo "JetBackup 5 service not running."
+_SVC_FAIL=1
 echo "Checking journalctl for errors. Displaying last 10 journalctl entries."
 journalctl -q -u jetbackup5d -n 10 --no-pager
 else 
@@ -602,6 +666,7 @@ echo "${LINEBREAK}"
 
 if [[ $(systemctl -q is-active jetmongod > /dev/null 2>&1 ; echo $?) != 0 ]]; then 
 echo "jetmongod service not running."
+_SVC_FAIL=1
 echo "Checking logs for errors. Displaying last 10 logged errors."
 grep -E '"s":"E"|Fatal assertion|WiredTiger error' /usr/local/jetapps/var/log/mongod/mongod.log | tail -10
 else 
@@ -615,8 +680,17 @@ echo "jetmongod functioning normally."
 else
 echo "[ERROR] jetmongod connection: FAILED"
 echo "[ERROR] jetmongod ping connection test failed. MongoDB may not be accepting connections. Please investigate and check /usr/local/jetapps/var/log/mongod/mongod.log for errors."
+_SVC_FAIL=1
 fi
 fi
+fi
+
+if [[ -n ${_SVC_FAIL} ]]; then
+status FAILED "One or more JetBackup services are not running. Investigation needed."
+elif [[ -n ${_SVC_WARN} ]]; then
+status WARNING "Services running OK but a restart is recommended."
+else
+status SUCCESS "JetBackup services active and healthy."
 fi
 
 echo "${LINEBREAK}"
