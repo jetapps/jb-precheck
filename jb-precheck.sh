@@ -213,15 +213,44 @@ validateLicense() {
 
 [[ -n ${MYIP} ]] && echo "JetBackup License Status:"
 
-LICFORMAT="Created:
-Type:
-Partner:
-Status:"
-STATUS="$(curl -H "User-Agent: jb-precheck/1.0" --get -m 30 -LSs https://billing.jetbackup.com/verify.php --data-urlencode "ip=${MYIP}" | grep -i 'jetlicense_info' -A13 | awk -F ' ' '{print $5}' | awk -F '>' '{print $2}' | sed 's/<\/td//g' | tr -s "[:space:]" )"
+#  Parse JSON without using jq to reduce dependencies. For each license print:
+# Created (date only), Type (product_name), Partner (partner_name), Status.
+# If success is returned but no active licenses, consider the section FAILED. 
+_LIC_JSON="$(curl -H "User-Agent: jb-precheck/1.0" --get -m 30 -LSs https://billing.jetbackup.com/verify.php --data-urlencode "ip=${MYIP}")"
 
-[[ -n ${STATUS} ]] && paste <(echo "$LICFORMAT") <(echo "${STATUS}" | sed '/^[[:space:]]*$/d') --delimiters ' ' || echo -en "Could not get License Status. (Not licensed?) \nVerify URL: https://billing.jetapps.com/verify.php?ip=${MYIP}\n"
+_LIC_OUT="$(printf '%s' "${_LIC_JSON}" | awk '
+function field(s, k,   p, r, e) {
+  p = "\"" k "\"[ \t]*:[ \t]*\""
+  if (match(s, p)) {
+    r = substr(s, RSTART + RLENGTH)
+    e = index(r, "\"")
+    return substr(r, 1, e - 1)
+  }
+  return ""
+}
+BEGIN { RS = "}"; first = 1 }
+/"product_name"/ {
+  created = field($0, "created"); sub(/T.*/, "", created)
+  if (!first) print ""
+  first = 0
+  print "Created: " created
+  print "Type: " field($0, "product_name")
+  print "Partner: " field($0, "partner_name")
+  print "Status: " field($0, "status")
+}
+')"
 
-[[ -n ${STATUS} ]] && status SUCCESS "License Status fetched sucessfully." || status WARNING "Could not retrieve license status (not licensed?); verify manually."
+if [[ -n ${_LIC_OUT} ]]; then
+echo "${_LIC_OUT}"
+status SUCCESS "License Status fetched successfully."
+elif printf '%s' "${_LIC_JSON}" | grep -Eqi '"success"[[:space:]]*:[[:space:]]*true'; then
+# Valid response, but the licenses array was empty.
+echo "No active licenses found for ${MYIP}."
+status FAILED "No active licenses found."
+else
+echo -en "Could not get License Status. (Not licensed?) \nVerify URL: https://billing.jetapps.com/verify.php?ip=${MYIP}\n"
+status WARNING "Could not retrieve license status (not licensed?); verify manually."
+fi
 
 
 
