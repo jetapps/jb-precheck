@@ -124,7 +124,24 @@ fi
 # Track kernel version
 [[ $(type -p uname) ]] && echo "Kernel Version: $(uname -srv)" || echo "[WARN] failed checking kernel version - uname not found"
 
-# Return system cgroups version. hybrid means cgroupsv2 is used, but some processes can start in v1 mode. 
+# Server uptime. Reads /proc/uptime directly (a kernel interface, not a distro package)
+# so this works identically on RHEL/AlmaLinux and Debian/Ubuntu regardless of procps version.
+if [[ -r /proc/uptime ]]; then
+_UPTIME_SECS="$(awk '{print int($1)}' /proc/uptime)"
+_UP_DAYS=$(( _UPTIME_SECS / 86400 ))
+_UP_HOURS=$(( (_UPTIME_SECS % 86400) / 3600 ))
+_UP_MINS=$(( (_UPTIME_SECS % 3600) / 60 ))
+_UP_DESC=""
+[[ ${_UP_DAYS} -gt 0 ]] && _UP_DESC="${_UP_DAYS}d "
+_UP_DESC="${_UP_DESC}${_UP_HOURS}h ${_UP_MINS}m"
+_BOOT_TIME="$(date -d "@$(( $(date +%s) - _UPTIME_SECS ))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)"
+echo "Uptime: ${_UP_DESC} (booted ${_BOOT_TIME:-unknown})"
+else
+echo "[WARN] Could not determine uptime - /proc/uptime not available"
+_UPTIME_FAIL=1
+fi
+
+# Return system cgroups version. hybrid means cgroupsv2 is used, but some processes can start in v1 mode.
 [ -f /sys/fs/cgroup/cgroup.controllers ] && echo Cgroups Version: v2 || (mount | grep -q "type cgroup2" && echo "Cgroups Version: hybrid" || echo "Cgroups Version: v1")
 
 # Determine the package manager. 
@@ -141,6 +158,8 @@ if [[ -n ${_PKG_FAIL} ]]; then
 status FAILED "Could not detect a supported package manager."
 elif [[ ! -f /etc/os-release ]]; then
 status WARNING "OS release file unavailable. "
+elif [[ -n ${_UPTIME_FAIL} ]]; then
+status WARNING "Could not determine server uptime."
 else
 status SUCCESS ""
 fi
@@ -589,7 +608,7 @@ done
 
 
 [[ -n "$ADDL_CRON" ]] && echo "WARN: Custom crons can effect JB function. Verify there are no conflicts."
-[[ -n "$ADDL_CRON" || -n "$_CRON_WARN" ]] && status WARNING "Cron issues found; verify scheduling/auto-update setup." || status SUCCESS "OK"
+[[ -n "$ADDL_CRON" || -n "$_CRON_WARN" ]] && status WARNING "Cron issues found; verify scheduling/auto-update setup." || status SUCCESS "Auto update cron OK."
 
 ################################################################
 # Check binaries 
@@ -617,7 +636,6 @@ echo "Found ${COUNT_B} unexpected or missing binaries:"
 echo ${JB5_BINFILES[@]} ${JB5_regex[@]} | tr ' ' '\n' | sort | uniq -u
 status WARNING "${COUNT_B} unexpected or missing binaries. Check manually."
 elif [[ ${COUNT_B} == 0 ]]; then
-echo "OK"
 status SUCCESS "All expected binaries present."
 fi
 
